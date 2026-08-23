@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { Download, Check, FileCheck, ArrowLeft, Clock, ShieldCheck, Sparkles } from 'lucide-react';
+import { Download, Check, FileCheck, ArrowLeft, Clock, ShieldCheck } from 'lucide-react';
 import { formatBytes, formatTimeRemaining, getFileTypeInfo } from '../../utils/formatters';
 import { triggerFileDownload } from '../../utils/downloadHelper';
 
-export function FileDownloadList({ shareData, onReset }) {
+export function FileDownloadList({ shareData, onReset, onGoHome }) {
   const [downloadedIndices, setDownloadedIndices] = useState(new Set());
   const [downloadingAll, setDownloadingAll] = useState(false);
 
-  const { code, files = [], totalSize, expiresAt, createdAt } = shareData;
+  const { code, files = [], totalSize, expiresAt } = shareData;
 
   const handleDownloadSingle = (file, index) => {
     triggerFileDownload(file.downloadUrl || file.url, file.originalName);
@@ -20,7 +20,6 @@ export function FileDownloadList({ shareData, onReset }) {
       const file = files[i];
       triggerFileDownload(file.downloadUrl || file.url, file.originalName);
       setDownloadedIndices((prev) => new Set([...prev, i]));
-      // Small pause between multiple downloads to avoid browser block
       if (i < files.length - 1) {
         await new Promise((r) => setTimeout(r, 600));
       }
@@ -29,7 +28,7 @@ export function FileDownloadList({ shareData, onReset }) {
   };
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <button
@@ -40,21 +39,18 @@ export function FileDownloadList({ shareData, onReset }) {
           <span>Enter another code</span>
         </button>
 
-        <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/30 text-xs font-mono font-bold">
+        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-xs font-mono font-bold text-emerald-400">
           #{code}
         </div>
       </div>
 
       {/* Overview Card */}
-      <div className="p-5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-4">
+      <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-bold text-white">Files Ready for Download</h3>
-              <Sparkles className="h-4 w-4 text-brand-400" />
-            </div>
+            <h3 className="text-base font-bold text-white">Files Ready for Download</h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              {files.length} file{files.length > 1 ? 's' : ''} &bull; Total size: {formatBytes(totalSize)}
+              {files.length} file{files.length > 1 ? 's' : ''} &middot; Total size: {formatBytes(totalSize)}
             </p>
           </div>
 
@@ -62,7 +58,7 @@ export function FileDownloadList({ shareData, onReset }) {
             <button
               onClick={handleDownloadAll}
               disabled={downloadingAll}
-              className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-brand-500 to-emerald-500 hover:from-brand-600 hover:to-emerald-600 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-brand-500/20 active:scale-[0.98] transition-all"
+              className="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-colors"
             >
               <Download className="h-4 w-4" />
               <span>{downloadingAll ? 'Starting Downloads...' : 'Download All Files'}</span>
@@ -70,14 +66,14 @@ export function FileDownloadList({ shareData, onReset }) {
           )}
         </div>
 
-        <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-800/80">
-          <div className="flex items-center gap-1 text-amber-400/90">
+        <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-900">
+          <div className="flex items-center gap-1 text-amber-400">
             <Clock className="h-3.5 w-3.5" />
             <span>Valid for: {formatTimeRemaining(expiresAt)}</span>
           </div>
           <div className="flex items-center gap-1 text-slate-400">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
-            <span>Direct Vercel Blob Download</span>
+            <span>Direct Blob Download</span>
           </div>
         </div>
       </div>
@@ -91,19 +87,19 @@ export function FileDownloadList({ shareData, onReset }) {
           return (
             <div
               key={`${file.originalName}-${index}`}
-              className="flex items-center justify-between p-4 rounded-2xl bg-slate-900/80 border border-slate-800/80 hover:border-slate-700 transition-all group"
+              className="flex items-center justify-between p-4 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
             >
               <div className="flex items-center gap-3 min-w-0 pr-3">
-                <div className={`p-2.5 rounded-xl border font-semibold text-xs ${fileType.color}`}>
-                  <FileCheck className="h-5 w-5" />
+                <div className={`p-2.5 rounded-lg border font-semibold text-xs ${fileType.color}`}>
+                  <FileCheck className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-200 truncate group-hover:text-white transition-colors">
+                  <p className="text-sm font-semibold text-slate-200 truncate">
                     {file.originalName}
                   </p>
                   <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                     <span>{formatBytes(file.size)}</span>
-                    <span>&bull;</span>
+                    <span>&middot;</span>
                     <span className="capitalize">{fileType.label}</span>
                   </div>
                 </div>
@@ -111,10 +107,11 @@ export function FileDownloadList({ shareData, onReset }) {
 
               <button
                 onClick={() => handleDownloadSingle(file, index)}
-                className={`shrink-0 py-2 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                aria-label={`Download ${file.originalName}`}
+                className={`shrink-0 py-2 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors ${
                   isDownloaded
-                    ? 'bg-slate-800 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-brand-600 hover:bg-brand-500 text-white shadow-md shadow-brand-500/20 active:scale-95'
+                    ? 'bg-slate-800 text-emerald-400 border border-emerald-900'
+                    : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                 }`}
               >
                 {isDownloaded ? (

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { KeyRound, ArrowRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Loader2 } from 'lucide-react';
 
 export function CodeInput({ onLookup, isLoading, initialCode = '' }) {
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
@@ -14,18 +14,15 @@ export function CodeInput({ onLookup, isLoading, initialCode = '' }) {
   }, [initialCode]);
 
   const handleChange = (index, value) => {
-    // Only accept alphanumeric / numeric
     const cleanVal = value.replace(/[^0-9]/g, '').slice(-1);
     const newDigits = [...digits];
     newDigits[index] = cleanVal;
     setDigits(newDigits);
 
-    // Auto-advance to next input
     if (cleanVal && index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // If all 6 digits filled, automatically trigger lookup
     const fullCode = newDigits.join('');
     if (fullCode.length === 6 && !newDigits.includes('')) {
       onLookup(fullCode);
@@ -41,7 +38,6 @@ export function CodeInput({ onLookup, isLoading, initialCode = '' }) {
   const handlePaste = (e) => {
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').trim();
-    // Extract first 6 digits or extract ?code=XXXXXX if a full URL was pasted
     let codeMatch = pastedData.match(/code=(\d{6})/i);
     let extracted = codeMatch ? codeMatch[1] : pastedData.replace(/\D/g, '').slice(0, 6);
 
@@ -78,21 +74,22 @@ export function CodeInput({ onLookup, isLoading, initialCode = '' }) {
               disabled={isLoading}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
-              className="w-11 h-14 sm:w-12 sm:h-16 text-center text-2xl font-bold font-mono bg-slate-950 border border-slate-700/80 rounded-xl text-brand-400 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all shadow-inner disabled:opacity-50"
+              aria-label={`Digit ${index + 1} of 6`}
+              className="w-11 h-14 sm:w-12 sm:h-16 text-center text-2xl font-bold font-mono bg-slate-950 border border-slate-800 rounded-xl text-emerald-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors disabled:opacity-50"
             />
           ))}
         </div>
         <p className="text-xs text-slate-400">
-          Enter the 6-digit share code or paste the share link
+          Enter the 6-digit share code or paste the full link
         </p>
       </div>
 
       <button
         type="submit"
         disabled={!isComplete || isLoading}
-        className={`w-full py-3 px-6 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-lg transition-all duration-200 ${
+        className={`w-full py-3 px-6 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${
           isComplete && !isLoading
-            ? 'bg-gradient-to-r from-brand-500 to-emerald-500 hover:from-brand-600 hover:to-emerald-600 text-white shadow-brand-500/25 active:scale-[0.99]'
+            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
             : 'bg-slate-800 text-slate-500 cursor-not-allowed'
         }`}
       >
@@ -103,7 +100,7 @@ export function CodeInput({ onLookup, isLoading, initialCode = '' }) {
           </>
         ) : (
           <>
-            <span>Lookup & Download Files</span>
+            <span>Download Files</span>
             <ArrowRight className="h-4 w-4" />
           </>
         )}

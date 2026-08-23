@@ -1,11 +1,11 @@
 import React, { useRef, useState } from 'react';
-import { UploadCloud, File, Trash2, Plus, Sparkles, AlertTriangle } from 'lucide-react';
+import { UploadCloud, File, Trash2, ArrowLeft, AlertTriangle } from 'lucide-react';
 import { formatBytes, getFileTypeInfo } from '../../utils/formatters';
 
-const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB per file
-const MAX_TOTAL_SIZE = 1000 * 1024 * 1024; // 1000MB total
+export const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB per file
+export const MAX_TOTAL_SIZE = 1000 * 1024 * 1024; // 1000MB total
 
-export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading, disabled }) {
+export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading, disabled, onGoHome }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
   const fileInputRef = useRef(null);
@@ -33,7 +33,6 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
       if (f.size > MAX_FILE_SIZE) {
         oversizedNames.push(`${f.name} (${formatBytes(f.size)})`);
       } else {
-        // Prevent duplicate file references
         if (!files.some((existing) => existing.name === f.name && existing.size === f.size)) {
           valid.push(f);
         }
@@ -45,8 +44,7 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
     }
 
     if (valid.length > 0) {
-      const combined = [...files, ...valid];
-      onFilesChange(combined);
+      onFilesChange([...files, ...valid]);
     }
   };
 
@@ -78,17 +76,29 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Header with Back button */}
+      <div className="flex items-center justify-between pb-1">
+        <button
+          onClick={onGoHome}
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          <span>Back to Home</span>
+        </button>
+        <span className="text-xs text-slate-500 font-medium">Send Files</span>
+      </div>
+
       {/* Dropzone area */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
+        className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-colors ${
           isDragOver
-            ? 'border-brand-500 bg-brand-500/10 scale-[1.01]'
-            : 'border-slate-800 hover:border-slate-700 bg-slate-900/40 hover:bg-slate-900/60'
+            ? 'border-blue-500 bg-blue-950/30'
+            : 'border-slate-800 hover:border-slate-700 bg-slate-950/60'
         } ${isUploading || disabled ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
       >
         <input
@@ -101,22 +111,22 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
         />
 
         <div className="flex flex-col items-center justify-center space-y-3">
-          <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-brand-500/20 to-emerald-500/10 border border-brand-500/30 flex items-center justify-center text-brand-400">
-            <UploadCloud className="h-8 w-8 animate-pulse-subtle" />
+          <div className="h-14 w-14 rounded-2xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center text-blue-400">
+            <UploadCloud className="h-7 w-7" />
           </div>
           <div>
-            <p className="text-base font-semibold text-white">
-              Drag and drop photos, videos, or files here
+            <p className="text-sm font-semibold text-white">
+              Choose files or drag & drop here
             </p>
             <p className="text-xs text-slate-400 mt-1">
-              or <span className="text-brand-400 font-medium hover:underline">browse from device</span> &bull; Up to 500MB per file (1GB batch)
+              Up to 500MB per file &middot; 1000MB total batch limit
             </p>
           </div>
         </div>
       </div>
 
       {errorMsg && (
-        <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs rounded-xl">
+        <div className="flex items-center gap-2 p-3 bg-amber-950/30 border border-amber-800 text-amber-300 text-xs rounded-xl">
           <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
           <span>{errorMsg}</span>
         </div>
@@ -124,13 +134,13 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
 
       {/* Selected files list */}
       {files.length > 0 && (
-        <div className="space-y-3 animate-fade-in">
+        <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
             <div className="flex items-center gap-2">
               <span className="font-semibold text-slate-200">{files.length} file{files.length > 1 ? 's' : ''}</span>
-              <span>&bull;</span>
+              <span>&middot;</span>
               <span className={isOverLimit ? 'text-rose-400 font-semibold' : 'text-slate-300'}>
-                {formatBytes(totalSize)} / 1GB
+                {formatBytes(totalSize)} / 1000MB
               </span>
             </div>
             {!isUploading && (
@@ -149,7 +159,7 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
               return (
                 <div
                   key={`${file.name}-${index}`}
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-900/90 border border-slate-800/80 hover:border-slate-700/80 transition-colors"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-slate-700 transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0 pr-2">
                     <div className={`p-2 rounded-lg border text-xs font-semibold ${fileType.color}`}>
@@ -169,6 +179,7 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
                       }}
                       className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors"
                       title="Remove file"
+                      aria-label={`Remove ${file.name}`}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -183,15 +194,14 @@ export function FileDropzone({ files, onFilesChange, onStartUpload, isUploading,
             <button
               onClick={onStartUpload}
               disabled={isUploading || isOverLimit || files.length === 0}
-              className={`w-full py-3.5 px-6 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-lg transition-all duration-200 ${
+              className={`w-full py-3 px-6 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-colors ${
                 isOverLimit
-                  ? 'bg-rose-600/50 text-rose-200 cursor-not-allowed'
+                  ? 'bg-rose-900/50 text-rose-300 border border-rose-800 cursor-not-allowed'
                   : files.length > 0 && !isUploading
-                  ? 'bg-gradient-to-r from-brand-500 to-emerald-500 hover:from-brand-600 hover:to-emerald-600 text-white shadow-brand-500/25 hover:shadow-brand-500/40 hover:scale-[1.01]'
+                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
                   : 'bg-slate-800 text-slate-500 cursor-not-allowed'
               }`}
             >
-              <Sparkles className="h-4 w-4" />
               <span>
                 {isOverLimit
                   ? 'Batch Exceeds 1000MB Limit'
