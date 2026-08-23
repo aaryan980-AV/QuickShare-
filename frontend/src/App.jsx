@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Download, QrCode, KeyRound, Image as ImageIcon, ArrowLeft } from 'lucide-react';
 import { Alert } from './components/UI/Alert';
+import { FileDropzone } from './components/Sender/FileDropzone';
 import { ShareSuccessModal } from './components/Sender/ShareSuccessModal';
 import { CodeInput } from './components/Receiver/CodeInput';
 import { CameraScanner } from './components/Receiver/CameraScanner';
@@ -21,9 +22,6 @@ export function App() {
   const [senderResult, setSenderResult] = useState(null);
   const [senderError, setSenderError] = useState(null);
 
-  // Hidden file input ref for triggering file picker directly from front page
-  const fileInputRef = useRef(null);
-
   // Receiver state
   const [initialCode, setInitialCode] = useState('');
   const [isLookingUp, setIsLookingUp] = useState(false);
@@ -41,28 +39,17 @@ export function App() {
     }
   }, []);
 
-  // Handle file selection from front page
-  const handleFilesSelected = (e) => {
-    const selected = e.target.files;
-    if (selected && selected.length > 0) {
-      const filesArray = Array.from(selected);
-      setSenderFiles(filesArray);
-      setCurrentView('send');
-      startUploadPipeline(filesArray);
-    }
-    e.target.value = '';
-  };
-
-  // Upload pipeline: upload directly to Blob, then register share
-  const startUploadPipeline = async (filesToUpload) => {
+  // Upload pipeline: upload directly to Blob or local dev fallback, then register share
+  const handleStartUpload = async () => {
+    if (senderFiles.length === 0) return;
     setIsUploading(true);
     setSenderError(null);
     setSenderResult(null);
     setUploadProgress({ percentage: 0, loaded: 0, total: 0, completedFiles: 0 });
 
     try {
-      // Step 1: Upload to Blob
-      const uploadedBlobs = await uploadFilesBatch(filesToUpload, {
+      // Step 1: Upload to Blob / Local storage
+      const uploadedBlobs = await uploadFilesBatch(senderFiles, {
         concurrency: 3,
         onTotalProgress: (prog) => {
           setUploadProgress(prog);
@@ -87,7 +74,6 @@ export function App() {
     setSenderResult(null);
     setSenderError(null);
     setUploadProgress({ percentage: 0, loaded: 0, total: 0, completedFiles: 0 });
-    fileInputRef.current?.click();
   };
 
   const handleGoHome = () => {
@@ -122,15 +108,6 @@ export function App() {
 
   return (
     <div className="min-h-full flex flex-col justify-between bg-[#0b0f1a] text-slate-100 selection:bg-blue-600 selection:text-white">
-      {/* Hidden file input triggered by 'Send file' button */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        onChange={handleFilesSelected}
-        className="hidden"
-      />
-
       {/* Main Content Area */}
       <main className="flex-1 max-w-xl w-full mx-auto px-4 py-12 flex flex-col justify-center items-center">
         {/* ==================================================================== */}
@@ -150,7 +127,7 @@ export function App() {
               {/* Left: Send Option */}
               <div className="flex flex-col items-center text-center space-y-3">
                 <div
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => setCurrentView('send')}
                   className="cursor-pointer p-2 hover:opacity-80 transition-opacity"
                 >
                   <Upload className="w-7 h-7 text-white" strokeWidth={1.8} />
@@ -160,7 +137,7 @@ export function App() {
                   <p className="text-[12px] text-[#8e98a8] mt-0.5">Upload and get a code</p>
                 </div>
                 <button
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => setCurrentView('send')}
                   className="w-full max-w-[140px] py-2 px-4 bg-transparent hover:bg-slate-800/40 border border-[#333d4e] hover:border-slate-500 text-white text-[13px] font-normal rounded-[12px] transition-colors"
                 >
                   Send file
@@ -191,29 +168,54 @@ export function App() {
         )}
 
         {/* ==================================================================== */}
-        {/* SCREEN 2 — POST-UPLOAD / PROGRESS SCREEN (Exact Image 2 Layout)       */}
+        {/* SCREEN 2 / SEND VIEW: Upload Dropzone -> Progress & QR Screen        */}
         {/* ==================================================================== */}
         {currentView === 'send' && (
           <div className="w-full animate-fade-in flex flex-col items-center">
-            {senderError && (
-              <div className="w-full max-w-sm mb-4">
-                <Alert
-                  type="error"
-                  title="Upload Error"
-                  message={senderError}
-                  onClose={() => setSenderError(null)}
+            {/* If upload completed or currently uploading, show Screen 2 (Image 2) */}
+            {isUploading || senderResult ? (
+              <div className="w-full">
+                {senderError && (
+                  <div className="w-full max-w-sm mx-auto mb-4">
+                    <Alert
+                      type="error"
+                      title="Upload Error"
+                      message={senderError}
+                      onClose={() => setSenderError(null)}
+                    />
+                  </div>
+                )}
+
+                <ShareSuccessModal
+                  shareData={senderResult}
+                  uploadFiles={senderFiles}
+                  isUploading={isUploading}
+                  uploadProgress={uploadProgress}
+                  onReset={handleResetSender}
+                  onGoHome={handleGoHome}
+                />
+              </div>
+            ) : (
+              /* Before starting upload: show clean Send / Dropzone screen */
+              <div className="w-full max-w-lg bg-[#141824] border border-[#242c3d] rounded-[18px] p-6 sm:p-8 space-y-5">
+                {senderError && (
+                  <Alert
+                    type="error"
+                    title="Upload Error"
+                    message={senderError}
+                    onClose={() => setSenderError(null)}
+                  />
+                )}
+
+                <FileDropzone
+                  files={senderFiles}
+                  onFilesChange={setSenderFiles}
+                  onStartUpload={handleStartUpload}
+                  isUploading={isUploading}
+                  onGoHome={handleGoHome}
                 />
               </div>
             )}
-
-            <ShareSuccessModal
-              shareData={senderResult}
-              uploadFiles={senderFiles}
-              isUploading={isUploading}
-              uploadProgress={uploadProgress}
-              onReset={handleResetSender}
-              onGoHome={handleGoHome}
-            />
           </div>
         )}
 
