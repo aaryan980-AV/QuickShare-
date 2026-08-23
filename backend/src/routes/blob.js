@@ -6,12 +6,21 @@ const router = express.Router();
 
 // Route for handling direct client-side blob upload token issuance and callbacks
 router.post('/upload', async (req, res, next) => {
+  const token = config.blobToken || process.env.BLOB_READ_WRITE_TOKEN;
+
+  if (!token) {
+    console.error('[Blob Route Error] BLOB_READ_WRITE_TOKEN is missing! Please configure Vercel Blob in your dashboard.');
+    return res.status(400).json({
+      error: 'Vercel Blob storage is not configured. Please set the BLOB_READ_WRITE_TOKEN environment variable in your Vercel Project Settings.'
+    });
+  }
+
   try {
     const jsonResponse = await handleUpload({
       body: req.body,
       request: req,
+      token,
       onBeforeGenerateToken: async (pathname, clientPayload) => {
-        // Enforce maximum file size server-side
         return {
           maximumSizeInBytes: config.maxFileSizeBytes, // 500 MB
           tokenPayload: JSON.stringify({
@@ -21,7 +30,6 @@ router.post('/upload', async (req, res, next) => {
         };
       },
       onUploadCompleted: async ({ blob, tokenPayload }) => {
-        // Callback invoked by Vercel Blob once upload is complete
         console.log(`[Blob Service] File uploaded successfully: ${blob.pathname} (${blob.size} bytes)`);
       }
     });

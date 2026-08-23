@@ -41,6 +41,11 @@ async function uploadWithRetry(file, onProgress, maxRetries = 3) {
       lastError = error;
       console.warn(`[Upload] Attempt ${attempt} failed for ${file.name}:`, error.message);
       
+      // If token retrieval explicitly fails due to missing server config, no need to endlessly retry
+      if (error.message && error.message.includes('retrieve the client token')) {
+        break;
+      }
+
       if (attempt < maxRetries) {
         // Exponential backoff
         await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 500));
@@ -48,7 +53,12 @@ async function uploadWithRetry(file, onProgress, maxRetries = 3) {
     }
   }
 
-  throw new Error(`Failed to upload ${file.name} after ${maxRetries} attempts: ${lastError?.message || 'Network error'}`);
+  let finalMessage = lastError?.message || 'Network error';
+  if (finalMessage.includes('retrieve the client token')) {
+    finalMessage = 'Vercel Blob token missing. Please ensure Vercel Blob storage is created in your Vercel Dashboard (Storage tab) and BLOB_READ_WRITE_TOKEN is added to Environment Variables.';
+  }
+
+  throw new Error(`Failed to upload ${file.name}: ${finalMessage}`);
 }
 
 /**

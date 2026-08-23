@@ -3,9 +3,9 @@ import { config } from './src/config.js';
 
 // Guard app.listen() to only run when NOT running inside Vercel serverless environment
 if (!process.env.VERCEL) {
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, '0.0.0.0', () => {
     console.log(`[QuickShare Server] Running on http://localhost:${config.port}`);
-    console.log(`[QuickShare Server] Environment: ${config.nodeEnv}`);
+    console.log(`[QuickShare Server] LAN URL: http://0.0.0.0:${config.port}`);
   });
 
   // Graceful shutdown handling
