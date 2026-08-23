@@ -1,15 +1,65 @@
 import { upload } from '@vercel/blob/client';
 
 /**
- * Upload a single file with automatic retry logic
+ * Upload a single file via local backend endpoint (fallback when Vercel Blob token is not set)
  */
-async function uploadWithRetry(file, onProgress, maxRetries = 3) {
+function uploadViaLocalServer(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    xhr.open('POST', '/api/blob/local-upload', true);
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentage = Math.round((event.loaded / event.total) * 100);
+          onProgress({
+            loaded: event.loaded,
+            total: event.total,
+            percentage: percentage,
+          });
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const json = JSON.parse(xhr.responseText);
+          resolve(json);
+        } catch (e) {
+          reject(new Error('Invalid response from server'));
+        }
+      } else {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          reject(new Error(errData.error || 'Local upload failed'));
+        } catch {
+          reject(new Error(`Upload failed with HTTP ${xhr.status}`));
+        }
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error('Network error during upload'));
+    };
+
+    xhr.send(formData);
+  });
+}
+
+/**
+ * Upload a single file: Tries direct Vercel Blob first; if no token configured, falls back to local server
+ */
+async function uploadWithRetry(file, onProgress, maxRetries = 2) {
   let attempt = 0;
   let lastError = null;
 
+  // Try direct Vercel Blob client upload first
   while (attempt < maxRetries) {
     try {
-      // Unique pathname to avoid collisions
       const timestamp = Date.now();
       const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
       const pathname = `quickshare/${timestamp}-${cleanName}`;
@@ -39,31 +89,29 @@ async function uploadWithRetry(file, onProgress, maxRetries = 3) {
     } catch (error) {
       attempt++;
       lastError = error;
-      console.warn(`[Upload] Attempt ${attempt} failed for ${file.name}:`, error.message);
-      
-      // If token retrieval explicitly fails due to missing server config, no need to endlessly retry
+
+      // If token is missing, seamlessly fall back to local dev upload endpoint
       if (error.message && error.message.includes('retrieve the client token')) {
-        break;
+        console.log(`[Upload] Vercel Blob token not found, seamlessly using local dev server upload for ${file.name}`);
+        return await uploadViaLocalServer(file, onProgress);
       }
 
       if (attempt < maxRetries) {
-        // Exponential backoff
-        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
       }
     }
   }
 
-  let finalMessage = lastError?.message || 'Network error';
-  if (finalMessage.includes('retrieve the client token')) {
-    finalMessage = 'Vercel Blob token missing. Please ensure Vercel Blob storage is created in your Vercel Dashboard (Storage tab) and BLOB_READ_WRITE_TOKEN is added to Environment Variables.';
+  // Fallback to local server upload if Vercel Blob failed
+  try {
+    return await uploadViaLocalServer(file, onProgress);
+  } catch (localErr) {
+    throw new Error(`Failed to upload ${file.name}: ${localErr.message || lastError?.message}`);
   }
-
-  throw new Error(`Failed to upload ${file.name}: ${finalMessage}`);
 }
 
 /**
- * Upload multiple files with controlled concurrency (e.g. 3 files in parallel)
- * and detailed per-file and total progress updates.
+ * Upload multiple files with controlled concurrency and progress tracking
  */
 export async function uploadFilesBatch(files, options = {}) {
   const {
@@ -129,7 +177,7 @@ export async function uploadFilesBatch(files, options = {}) {
             completedFiles++;
             runningCount--;
             fileProgressMap.set(fileIndex, file.size);
-            
+
             if (onFileComplete) {
               onFileComplete(fileIndex, blobResult);
             }
