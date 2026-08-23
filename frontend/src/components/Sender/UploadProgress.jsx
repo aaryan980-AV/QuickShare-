@@ -1,5 +1,4 @@
 import React from 'react';
-import { Loader2 } from 'lucide-react';
 import { formatBytes } from '../../utils/formatters';
 
 export function UploadProgress({ progress, files, currentStep }) {
@@ -10,39 +9,23 @@ export function UploadProgress({ progress, files, currentStep }) {
   const totalFormatted = formatBytes(total);
 
   return (
-    <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-4 text-left">
-      {/* Live Text Header */}
-      <div className="flex items-center justify-between">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
-            <h3 className="text-sm font-semibold text-white">
-              {currentStep === 'code' ? 'Generating Share Code...' : 'Uploading Files...'}
-            </h3>
-          </div>
-          <p className="text-xs text-slate-400">
-            {totalFilesCount} file{totalFilesCount > 1 ? 's' : ''} &middot; {currentLoadedFormatted} of {totalFormatted} uploaded
-          </p>
-        </div>
-
-        <span className="text-base font-bold text-blue-400 font-mono">
-          {percentage}%
+    <div className="w-full max-w-sm mx-auto space-y-2 text-center py-4 animate-fade-in">
+      {/* Small status text above the progress bar, light gray (#9aa3b8), 13px */}
+      <div className="flex items-center justify-between text-[13px] text-[#9aa3b8]">
+        <span>
+          {currentStep === 'code'
+            ? 'Generating code & QR...'
+            : `${totalFilesCount} file${totalFilesCount > 1 ? 's' : ''} \u00b7 ${currentLoadedFormatted} of ${totalFormatted} uploaded`}
         </span>
+        <span className="font-mono font-medium text-white">{percentage}%</span>
       </div>
 
-      {/* Progress Bar - Flat */}
-      <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+      {/* Progress bar: track color #1c2333, fill color #3b82f6 (blue), 8px height, 8px border-radius, full width */}
+      <div className="w-full bg-[#1c2333] h-[8px] rounded-[8px] overflow-hidden">
         <div
-          className="bg-blue-500 h-full rounded-full transition-all duration-200 ease-out"
+          className="bg-[#3b82f6] h-full rounded-[8px] transition-all duration-200 ease-out"
           style={{ width: `${Math.min(100, Math.max(0, percentage))}%` }}
         />
-      </div>
-
-      <div className="flex items-center justify-between text-[11px] text-slate-500">
-        <span>
-          {completedFiles} of {totalFilesCount} file{totalFilesCount > 1 ? 's' : ''} completed
-        </span>
-        <span>Parallel chunked upload</span>
       </div>
     </div>
   );

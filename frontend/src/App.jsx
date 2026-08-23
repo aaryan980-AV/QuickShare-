@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, QrCode, KeyRound, Image as ImageIcon, Lock, Clock, FileText, Zap, ArrowLeft, ArrowRight } from 'lucide-react';
-import { Header } from './components/Header';
-import { Card } from './components/UI/Card';
+import { Upload, Download, QrCode, KeyRound, Image as ImageIcon, Lock, Clock, FileText, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Alert } from './components/UI/Alert';
 import { FileDropzone, MAX_TOTAL_SIZE } from './components/Sender/FileDropzone';
 import { UploadProgress } from './components/Sender/UploadProgress';
@@ -111,107 +109,134 @@ export function App() {
   };
 
   return (
-    <div className="min-h-full flex flex-col justify-between bg-slate-950 text-slate-100">
-      <Header currentView={currentView} onGoHome={handleGoHome} />
+    <div className="min-h-full flex flex-col justify-between bg-[#0b0f1a] text-slate-100 selection:bg-blue-600 selection:text-white">
+      {/* Top Header / App Bar */}
+      <header className="border-b border-[#1c2333]/70 bg-[#0b0f1a] sticky top-0 z-30">
+        <div className="max-w-xl mx-auto px-4 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            {currentView !== 'home' && (
+              <button
+                onClick={handleGoHome}
+                aria-label="Back to home"
+                className="p-1.5 rounded-[8px] bg-[#1c2333] border border-[#2e3650] text-slate-300 hover:text-white transition-colors"
+              >
+                <ArrowLeft className="h-4 w-4" />
+              </button>
+            )}
+            <h1 className="text-[17px] font-medium text-white tracking-tight">
+              QuickShare
+            </h1>
+          </div>
 
-      <main className="flex-1 max-w-xl w-full mx-auto px-4 py-8 sm:py-12">
+          <span className="text-[11px] font-medium text-[#8b93a7] px-2.5 py-0.5 rounded-[6px] bg-[#141a29] border border-[#262f45]">
+            {currentView === 'home' && 'v1.0'}
+            {currentView === 'send' && 'Send'}
+            {currentView === 'receive' && 'Receive'}
+          </span>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col justify-center">
         {/* ==================================================================== */}
-        {/* SCREEN 1: LANDING / HOME SCREEN (SPLIT SEND / RECEIVE)                */}
+        {/* SCREEN 1 — HOME: SPLIT SEND / RECEIVE                                */}
         {/* ==================================================================== */}
         {currentView === 'home' && (
-          <div className="space-y-8 text-center animate-fade-in">
-            {/* Top: App Name / Logo Centered */}
-            <div className="space-y-3 pt-2">
-              <div className="h-14 w-14 mx-auto rounded-2xl bg-blue-950/40 border border-blue-900/50 flex items-center justify-center text-blue-400">
-                <Zap className="h-7 w-7" />
-              </div>
-              <div>
-                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-                  QuickShare
-                </h2>
-                <p className="text-sm text-slate-400 mt-1">
-                  Fast, persistent, peer-to-peer file sharing
-                </p>
-              </div>
+          <div className="space-y-6 animate-fade-in w-full">
+            {/* App name "QuickShare" centered at top, white text, 17px, medium weight */}
+            <div className="text-center">
+              <h2 className="text-[17px] font-medium text-white">
+                QuickShare
+              </h2>
             </div>
 
-            {/* Split Send / Receive Cards (Side-by-side on desktop, stacked on mobile) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Send Card: Cool Blue-ish tint, flat fill */}
+            {/* Two cards side by side (stack vertically only below ~480px width) */}
+            <div className="flex flex-col xs:flex-row gap-[10px]">
+              {/* SEND card */}
               <div
                 onClick={() => setCurrentView('send')}
-                className="p-6 rounded-2xl bg-blue-950/20 border border-blue-900/40 hover:border-blue-700/60 transition-colors flex flex-col items-center justify-between text-center space-y-5 cursor-pointer group"
+                className="flex-1 bg-[#16234a] rounded-[14px] p-5 flex flex-col items-center justify-between text-center space-y-4 cursor-pointer transition-opacity hover:opacity-95"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && setCurrentView('send')}
                 aria-label="Send files"
               >
-                <div className="space-y-3 flex flex-col items-center">
-                  <div className="h-12 w-12 rounded-xl bg-blue-950/60 border border-blue-800/60 flex items-center justify-center text-blue-400 group-hover:text-blue-300 transition-colors">
-                    <Upload className="h-6 w-6" />
+                <div className="flex flex-col items-center space-y-2">
+                  {/* Icon: upload arrow icon, light blue #5b8def, 22px, centered */}
+                  <div className="flex items-center justify-center">
+                    <Upload className="w-[22px] h-[22px] text-[#5b8def]" />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white">Send</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Upload and get a code</p>
-                  </div>
+                  {/* Label "Send" — white, 14px, medium weight, centered */}
+                  <h3 className="text-[14px] font-medium text-white">
+                    Send
+                  </h3>
+                  {/* Subtext "Upload and get a code" — light blue-gray #8ea4d1, 11px, centered */}
+                  <p className="text-[11px] text-[#8ea4d1]">
+                    Upload and get a code
+                  </p>
                 </div>
 
+                {/* Small "Start" button below, transparent background, 1px border in a slightly lighter blue, white text, 8px border-radius */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setCurrentView('send');
                   }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  className="px-4 py-1.5 bg-transparent border border-[#2c4485] hover:border-[#5b8def] text-white text-[12px] font-medium rounded-[8px] transition-colors"
                 >
-                  <span>Select Files</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  Start
                 </button>
               </div>
 
-              {/* Receive Card: Green-ish tint, flat fill */}
+              {/* RECEIVE card */}
               <div
                 onClick={() => setCurrentView('receive')}
-                className="p-6 rounded-2xl bg-emerald-950/20 border border-emerald-900/40 hover:border-emerald-700/60 transition-colors flex flex-col items-center justify-between text-center space-y-5 cursor-pointer group"
+                className="flex-1 bg-[#16302a] rounded-[14px] p-5 flex flex-col items-center justify-between text-center space-y-4 cursor-pointer transition-opacity hover:opacity-95"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && setCurrentView('receive')}
                 aria-label="Receive files"
               >
-                <div className="space-y-3 flex flex-col items-center">
-                  <div className="h-12 w-12 rounded-xl bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center text-emerald-400 group-hover:text-emerald-300 transition-colors">
-                    <Download className="h-6 w-6" />
+                <div className="flex flex-col items-center space-y-2">
+                  {/* Icon: download arrow icon, light green #4ade80, 22px, centered */}
+                  <div className="flex items-center justify-center">
+                    <Download className="w-[22px] h-[22px] text-[#4ade80]" />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white">Receive</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">Enter a code or scan</p>
-                  </div>
+                  {/* Label "Receive" — white, 14px, medium weight, centered */}
+                  <h3 className="text-[14px] font-medium text-white">
+                    Receive
+                  </h3>
+                  {/* Subtext "Enter a code or scan" — light green-gray #8fc9a8, 11px, centered */}
+                  <p className="text-[11px] text-[#8fc9a8]">
+                    Enter a code or scan
+                  </p>
                 </div>
 
+                {/* Small "Start" button below, transparent background, 1px border in a slightly lighter green, white text, 8px border-radius */}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setCurrentView('receive');
                   }}
-                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  className="px-4 py-1.5 bg-transparent border border-[#2e5c4a] hover:border-[#4ade80] text-white text-[12px] font-medium rounded-[8px] transition-colors"
                 >
-                  <span>Enter Code / Scan</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  Start
                 </button>
               </div>
             </div>
 
-            {/* Row of Trust Indicators */}
-            <div className="pt-4 flex flex-wrap items-center justify-center gap-6 text-xs text-slate-400">
+            {/* Below the two cards, a centered row of trust indicators in muted gray (#8b93a7), 11px text, ~16px gap between items */}
+            <div className="pt-2 flex flex-wrap items-center justify-center gap-4 text-[11px] text-[#8b93a7]">
               <div className="flex items-center gap-1.5">
-                <Lock className="h-3.5 w-3.5 text-slate-300" />
+                <Lock className="w-3.5 h-3.5" />
                 <span>Encrypted</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-slate-300" />
+                <Clock className="w-3.5 h-3.5" />
                 <span>Auto-expires</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <FileText className="h-3.5 w-3.5 text-slate-300" />
+                <FileText className="w-3.5 h-3.5" />
                 <span>Up to {formatBytes(MAX_TOTAL_SIZE, 0)}</span>
               </div>
             </div>
@@ -219,18 +244,26 @@ export function App() {
         )}
 
         {/* ==================================================================== */}
-        {/* SCREEN 2 / SEND VIEW: Upload dropzone, progress, & post-upload screen */}
+        {/* SCREEN 2 — POST-UPLOAD: PROGRESS + QR + CODE (OR UPLOAD DROPZONE)     */}
         {/* ==================================================================== */}
         {currentView === 'send' && (
-          <Card className="animate-fade-in">
+          <div className="w-full animate-fade-in">
             {senderResult ? (
               <ShareSuccessModal
                 shareData={senderResult}
                 onReset={handleResetSender}
                 onGoHome={handleGoHome}
               />
+            ) : isUploading ? (
+              <div className="space-y-4">
+                <UploadProgress
+                  progress={uploadProgress}
+                  files={senderFiles}
+                  currentStep={uploadStep}
+                />
+              </div>
             ) : (
-              <div className="space-y-6">
+              <div className="bg-[#141a29] border border-[#262f45] rounded-[14px] p-6 sm:p-8 space-y-5">
                 {senderError && (
                   <Alert
                     type="error"
@@ -240,73 +273,67 @@ export function App() {
                   />
                 )}
 
-                {isUploading ? (
-                  <UploadProgress
-                    progress={uploadProgress}
-                    files={senderFiles}
-                    currentStep={uploadStep}
-                  />
-                ) : (
-                  <FileDropzone
-                    files={senderFiles}
-                    onFilesChange={setSenderFiles}
-                    onStartUpload={handleStartUpload}
-                    isUploading={isUploading}
-                    onGoHome={handleGoHome}
-                  />
-                )}
+                <FileDropzone
+                  files={senderFiles}
+                  onFilesChange={setSenderFiles}
+                  onStartUpload={handleStartUpload}
+                  isUploading={isUploading}
+                  onGoHome={handleGoHome}
+                />
               </div>
             )}
-          </Card>
+          </div>
         )}
 
         {/* ==================================================================== */}
-        {/* RECEIVE VIEW: Code input, QR camera scanner, image upload            */}
+        {/* RECEIVE VIEW: CODE INPUT, QR SCANNER, IMAGE DECODER                  */}
         {/* ==================================================================== */}
         {currentView === 'receive' && (
-          <Card className="animate-fade-in">
+          <div className="w-full animate-fade-in">
             {receivedShare ? (
-              <FileDownloadList
-                shareData={receivedShare}
-                onReset={handleResetReceiver}
-                onGoHome={handleGoHome}
-              />
+              <div className="bg-[#141a29] border border-[#262f45] rounded-[14px] p-6 sm:p-8">
+                <FileDownloadList
+                  shareData={receivedShare}
+                  onReset={handleResetReceiver}
+                  onGoHome={handleGoHome}
+                />
+              </div>
             ) : (
-              <div className="space-y-6">
+              <div className="bg-[#141a29] border border-[#262f45] rounded-[14px] p-6 sm:p-8 space-y-6">
                 {/* Header with Back button */}
                 <div className="flex items-center justify-between pb-1">
                   <button
                     onClick={handleGoHome}
-                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[#8b93a7] hover:text-white transition-colors"
                   >
                     <ArrowLeft className="h-3.5 w-3.5" />
                     <span>Back to Home</span>
                   </button>
-                  <span className="text-xs text-slate-500 font-medium">Receive Files</span>
+                  <span className="text-xs text-[#8b93a7]">Receive Files</span>
                 </div>
 
                 <div className="space-y-1">
-                  <h2 className="text-lg font-bold text-white tracking-tight">Receive Files</h2>
-                  <p className="text-xs text-slate-400">
+                  <h2 className="text-[16px] font-medium text-white">Receive Files</h2>
+                  <p className="text-xs text-[#8b93a7]">
                     Enter a 6-digit share code or scan a QR code to download files.
                   </p>
                 </div>
 
                 {/* Receiver Sub-Mode Toggle */}
-                <div className="grid grid-cols-3 gap-2 p-1 bg-slate-950 border border-slate-800 rounded-xl">
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#0b0f1a] border border-[#262f45] rounded-[10px]">
                   <button
                     onClick={() => {
                       setReceiveMode('code');
                       setReceiverError(null);
                     }}
-                    className={`py-2 px-2.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+                    className={`py-2 px-2 text-xs font-medium rounded-[8px] flex items-center justify-center gap-1.5 transition-colors ${
                       receiveMode === 'code'
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#1c2333] text-white'
+                        : 'text-[#8b93a7] hover:text-white'
                     }`}
                   >
                     <KeyRound className="h-3.5 w-3.5" />
-                    <span>6-Digit Code</span>
+                    <span>6-Digit</span>
                   </button>
 
                   <button
@@ -314,14 +341,14 @@ export function App() {
                       setReceiveMode('camera');
                       setReceiverError(null);
                     }}
-                    className={`py-2 px-2.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+                    className={`py-2 px-2 text-xs font-medium rounded-[8px] flex items-center justify-center gap-1.5 transition-colors ${
                       receiveMode === 'camera'
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#1c2333] text-white'
+                        : 'text-[#8b93a7] hover:text-white'
                     }`}
                   >
                     <QrCode className="h-3.5 w-3.5" />
-                    <span>Camera Scan</span>
+                    <span>Camera</span>
                   </button>
 
                   <button
@@ -329,10 +356,10 @@ export function App() {
                       setReceiveMode('image');
                       setReceiverError(null);
                     }}
-                    className={`py-2 px-2.5 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-colors ${
+                    className={`py-2 px-2 text-xs font-medium rounded-[8px] flex items-center justify-center gap-1.5 transition-colors ${
                       receiveMode === 'image'
-                        ? 'bg-slate-800 text-white'
-                        : 'text-slate-400 hover:text-slate-200'
+                        ? 'bg-[#1c2333] text-white'
+                        : 'text-[#8b93a7] hover:text-white'
                     }`}
                   >
                     <ImageIcon className="h-3.5 w-3.5" />
@@ -373,13 +400,13 @@ export function App() {
                 )}
               </div>
             )}
-          </Card>
+          </div>
         )}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-5 text-center text-xs text-slate-500">
-        <p>QuickShare &middot; Built on Vercel Services</p>
+      <footer className="border-t border-[#1c2333]/50 bg-[#0b0f1a] py-4 text-center text-[11px] text-[#8b93a7]">
+        <p>QuickShare &middot; Peer-to-peer cloud transfer</p>
       </footer>
     </div>
   );

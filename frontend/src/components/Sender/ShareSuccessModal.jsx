@@ -1,15 +1,14 @@
 import React, { useState } from 'react';
 import { Copy, Check, QrCode, ArrowLeft, RefreshCw } from 'lucide-react';
-import { formatBytes } from '../../utils/formatters';
 
 export function ShareSuccessModal({ shareData, onReset, onGoHome }) {
   const [copiedLink, setCopiedLink] = useState(false);
 
-  const { code, shareUrl, qrCode, filesCount, totalSize } = shareData;
+  const { code, shareUrl, qrCode } = shareData;
 
-  // Format 6-digit code with spacing: "849 201"
-  const formattedCode = code && code.length === 6 
-    ? `${code.slice(0, 3)} ${code.slice(3)}` 
+  // Format 6-digit code with spacing into two groups of three: "849 201"
+  const formattedCode = code && code.length === 6
+    ? `${code.slice(0, 3)} ${code.slice(3)}`
     : code;
 
   const copyToClipboard = async () => {
@@ -23,52 +22,41 @@ export function ShareSuccessModal({ shareData, onReset, onGoHome }) {
   };
 
   return (
-    <div className="flex flex-col items-center text-center space-y-6 py-2">
-      {/* Upload Confirmation Header */}
-      <div className="space-y-1">
-        <h2 className="text-xl font-bold text-white tracking-tight">Files Ready to Share</h2>
-        <p className="text-xs text-slate-400">
-          {filesCount} file{filesCount > 1 ? 's' : ''} &middot; {formatBytes(totalSize)} uploaded
-        </p>
-      </div>
-
-      {/* QR Code in bordered card (roughly 140x140px) */}
-      <div className="p-3 bg-white border border-slate-700 rounded-2xl flex items-center justify-center">
+    <div className="w-full max-w-sm mx-auto flex flex-col items-center text-center space-y-5 py-4 animate-fade-in">
+      {/* QR Code Container: ~140x140px, background #141a29, 1px border #262f45, 14px border-radius */}
+      <div className="w-[140px] h-[140px] bg-[#141a29] border border-[#262f45] rounded-[14px] p-2.5 flex items-center justify-center">
         {qrCode ? (
           <img
             src={qrCode}
             alt={`QuickShare QR Code for ${code}`}
-            className="w-[140px] h-[140px] object-contain rounded-lg"
+            className="w-full h-full object-contain rounded-[6px]"
           />
         ) : (
-          <div className="w-[140px] h-[140px] flex items-center justify-center text-slate-400">
-            <QrCode className="h-10 w-10 animate-spin text-slate-900" />
+          <div className="w-full h-full flex items-center justify-center text-slate-400">
+            <QrCode className="h-8 w-8 animate-spin text-slate-500" />
           </div>
         )}
       </div>
 
       {/* Code Section */}
-      <div className="space-y-1.5 w-full max-w-sm">
-        <span className="text-xs font-medium text-slate-400">
+      <div className="space-y-1 w-full">
+        {/* Muted label "Or share this code" — #8b93a7, 12px, centered */}
+        <p className="text-[12px] text-[#8b93a7]">
           Or share this code
-        </span>
-        <div className="py-2.5 px-4 bg-slate-950 border border-slate-800 rounded-xl">
-          <p className="text-3xl sm:text-4xl font-extrabold tracking-[0.2em] font-mono text-white select-all">
-            {formattedCode}
-          </p>
-        </div>
+        </p>
+
+        {/* The actual share code — white, 26px, medium weight, monospace font, letter-spacing ~4px */}
+        <p className="text-[26px] font-medium text-white font-mono tracking-[4px] select-all leading-tight">
+          {formattedCode}
+        </p>
       </div>
 
-      {/* Full-width Secondary-Style Copy Link Button */}
-      <div className="w-full max-w-sm space-y-3 pt-1">
+      {/* Full-width "Copy link" button: background #1c2333, 1px border #2e3650, white text, 10px border-radius, ~11px vertical padding, copy icon on the left */}
+      <div className="w-full space-y-4 pt-1">
         <button
           onClick={copyToClipboard}
-          className={`w-full py-3 px-4 rounded-xl text-sm font-semibold border flex items-center justify-center gap-2 transition-colors ${
-            copiedLink
-              ? 'bg-emerald-950/40 border-emerald-800 text-emerald-300'
-              : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-white'
-          }`}
-          aria-label="Copy share link to clipboard"
+          aria-label="Copy share link"
+          className="w-full py-[11px] px-4 bg-[#1c2333] hover:bg-[#252e42] border border-[#2e3650] text-white text-sm rounded-[10px] flex items-center justify-center gap-2 transition-colors active:scale-[0.99]"
         >
           {copiedLink ? (
             <>
@@ -83,8 +71,8 @@ export function ShareSuccessModal({ shareData, onReset, onGoHome }) {
           )}
         </button>
 
-        {/* Auxiliary actions */}
-        <div className="flex items-center justify-center gap-4 text-xs pt-2 text-slate-400">
+        {/* Auxiliary navigation */}
+        <div className="flex items-center justify-center gap-4 text-xs text-[#8b93a7] pt-1">
           <button
             onClick={onReset}
             className="hover:text-slate-200 transition-colors flex items-center gap-1.5"

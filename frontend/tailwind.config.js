@@ -7,24 +7,30 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          200: '#bbf7d0',
-          300: '#86efac',
-          400: '#4ade80',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-          800: '#166534',
-          900: '#14532d',
-          950: '#052e16',
-        }
+        darkNavy: '#0b0f1a',
+        sendBg: '#16234a',
+        sendIcon: '#5b8def',
+        sendText: '#8ea4d1',
+        sendBorder: '#2c4485',
+        receiveBg: '#16302a',
+        receiveIcon: '#4ade80',
+        receiveText: '#8fc9a8',
+        receiveBorder: '#2e5c4a',
+        mutedGray: '#8b93a7',
+        statusGray: '#9aa3b8',
+        trackBg: '#1c2333',
+        progressFill: '#3b82f6',
+        qrBg: '#141a29',
+        qrBorder: '#262f45',
+        buttonBg: '#1c2333',
+        buttonBorder: '#2e3650',
+      },
+      screens: {
+        'xs': '480px',
       },
       animation: {
-        'pulse-subtle': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-        'fade-in': 'fadeIn 0.25s ease-in-out',
-        'slide-up': 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        'fade-in': 'fadeIn 0.2s ease-in-out',
+        'slide-up': 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
       },
       keyframes: {
         fadeIn: {
@@ -32,7 +38,7 @@ export default {
           '100%': { opacity: '1' },
         },
         slideUp: {
-          '0%': { opacity: '0', transform: 'translateY(12px)' },
+          '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       }

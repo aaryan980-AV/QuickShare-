@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    background-color: #030712;
+  html, body {
+    background-color: #0b0f1a;
     color: #f3f4f6;
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   }
@@ -16,25 +16,22 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: #0b0f1a;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
+  background: #1c2333;
   border-radius: 4px;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 1);
-}
 
-/* QR Scanner styling fixes */
+/* QR Scanner viewport adjustments */
 #reader {
   border: none !important;
-  border-radius: 1rem;
+  border-radius: 14px;
   overflow: hidden;
 }
 
 #reader video {
-  border-radius: 0.75rem;
+  border-radius: 12px;
   object-fit: cover !important;
   width: 100% !important;
 }
