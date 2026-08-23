@@ -11,11 +11,11 @@ export async function generateQRCode(text) {
       errorCorrectionLevel: 'H',
       type: 'image/png',
       quality: 0.95,
-      margin: 2,
+      margin: 1,
       width: 400,
       color: {
-        dark: '#0f172a',
-        light: '#ffffff'
+        dark: '#ffffff',
+        light: '#141824'
       }
     });
     return dataUrl;
