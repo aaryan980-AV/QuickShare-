@@ -9,7 +9,6 @@ import { config } from '../config.js';
 
 const router = express.Router();
 
-// On Vercel serverless, root directory is read-only, so use OS temp directory
 const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 const uploadsDir = isServerless ? path.join(os.tmpdir(), 'quickshare_uploads') : path.resolve('uploads');
 
@@ -24,7 +23,6 @@ function ensureUploadsDir() {
 }
 ensureUploadsDir();
 
-// In-memory registry for chunked upload sessions
 const chunkSessions = new Map();
 
 // Periodic cleanup of abandoned chunk sessions (> 2 hours inactive)
@@ -44,7 +42,6 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-// Memory storage for serverless-safe parsing
 const uploadMemoryMiddleware = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: config.maxFileSizeBytes }
@@ -52,7 +49,7 @@ const uploadMemoryMiddleware = multer({
 
 const chunkMulter = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 }
 });
 
 // ============================================================================
@@ -74,7 +71,7 @@ router.get('/files/:filename', (req, res) => {
 });
 
 // ============================================================================
-// SINGLE-REQUEST LOCAL UPLOAD (Super fast, safe on Serverless)
+// SINGLE-REQUEST LOCAL UPLOAD
 // ============================================================================
 router.post('/local-upload', (req, res) => {
   uploadMemoryMiddleware.single('file')(req, res, (err) => {
@@ -114,7 +111,7 @@ router.post('/local-upload', (req, res) => {
 });
 
 // ============================================================================
-// CHUNKED UPLOAD PIPELINE
+// CHUNKED UPLOAD PIPELINE (1MB chunks for strict Vercel compatibility)
 // ============================================================================
 
 // 1. Initialize Chunked Upload Session
@@ -155,7 +152,7 @@ router.post('/chunk/init', (req, res) => {
     return res.status(200).json({
       uploadId,
       targetFilename,
-      chunkSize: 10 * 1024 * 1024
+      chunkSize: 1 * 1024 * 1024 // 1 MB chunk size to stay well within Vercel 4.5MB limit
     });
   } catch (error) {
     console.error('[Chunk Init Fatal Error]:', error);
@@ -239,7 +236,7 @@ router.post('/chunk/complete', (req, res) => {
   }
 });
 
-// Route for handling Vercel Blob client token generation (Production mode)
+// Route for handling Vercel Blob client token generation
 router.post('/upload', async (req, res, next) => {
   const token = config.blobToken || process.env.BLOB_READ_WRITE_TOKEN;
 

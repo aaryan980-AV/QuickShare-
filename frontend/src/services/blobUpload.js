@@ -1,10 +1,10 @@
 ﻿import { upload } from '@vercel/blob/client';
 import { calculateFileHash } from '../utils/cryptoHelper';
 
-const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB per slice (safely below Vercel 4.5MB request limit)
+const CHUNK_SIZE = 1 * 1024 * 1024; // 1 MB per slice (strictly avoids Vercel 413 limit)
 
 /**
- * Direct Single-Request Upload (For small files < 2.5 MB)
+ * Direct Single-Request Upload (For small files <= 2MB)
  */
 function uploadDirectLocal(file, onProgress) {
   return new Promise((resolve, reject) => {
@@ -54,7 +54,7 @@ function uploadDirectLocal(file, onProgress) {
 }
 
 /**
- * Upload a single chunk slice (2MB)
+ * Upload a single chunk slice (1MB)
  */
 async function uploadSingleChunk(uploadId, chunkBlob, targetFilename) {
   const formData = new FormData();
@@ -78,7 +78,7 @@ async function uploadSingleChunk(uploadId, chunkBlob, targetFilename) {
 }
 
 /**
- * High-performance Chunked Stream Upload (2MB slices, supports up to 1 TB on Vercel)
+ * High-performance Chunked Stream Upload (1MB slices, supports up to 1 TB on Vercel)
  */
 async function uploadViaChunkedStream(file, onProgress) {
   // Step 1: Initialize session
@@ -98,13 +98,14 @@ async function uploadViaChunkedStream(file, onProgress) {
   }
 
   const { uploadId, chunkSize = CHUNK_SIZE, targetFilename } = await initRes.json();
+  const effectiveChunkSize = Math.min(chunkSize, CHUNK_SIZE);
 
-  // Step 2: Slice and stream 2MB chunks sequentially
+  // Step 2: Slice and stream 1MB chunks sequentially
   let offset = 0;
   const totalSize = file.size;
 
   while (offset < totalSize) {
-    const chunkBlob = file.slice(offset, Math.min(offset + chunkSize, totalSize));
+    const chunkBlob = file.slice(offset, Math.min(offset + effectiveChunkSize, totalSize));
     await uploadSingleChunk(uploadId, chunkBlob, targetFilename);
 
     offset += chunkBlob.size;
@@ -178,8 +179,8 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
     }
   }
 
-  // Strategy B: For files <= 2.5 MB, use fast single-request upload
-  if (file.size <= 2.5 * 1024 * 1024) {
+  // Strategy B: For files <= 2 MB, use fast single-request upload
+  if (file.size <= 2 * 1024 * 1024) {
     try {
       const result = await uploadDirectLocal(file, onProgress);
       result.sha256 = sha256Hash;
@@ -189,7 +190,7 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
     }
   }
 
-  // Strategy C: For all other files (or large files up to 1 TB), use 2MB chunked streaming
+  // Strategy C: For large files (e.g. 700MB video up to 1 TB), use 1MB chunked streaming
   try {
     const streamResult = await uploadViaChunkedStream(file, onProgress);
     streamResult.sha256 = sha256Hash;
