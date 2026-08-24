@@ -44,19 +44,9 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-const diskStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    ensureUploadsDir();
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const cleanName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    cb(null, `${Date.now()}-${cleanName}`);
-  }
-});
-
-const uploadMiddleware = multer({
-  storage: diskStorage,
+// Memory storage for serverless-safe parsing
+const uploadMemoryMiddleware = multer({
+  storage: multer.memoryStorage(),
   limits: { fileSize: config.maxFileSizeBytes }
 });
 
@@ -66,7 +56,7 @@ const chunkMulter = multer({
 });
 
 // ============================================================================
-// FILE DOWNLOAD / SERVING ROUTE (Supports direct browser download & streaming)
+// FILE DOWNLOAD / SERVING ROUTE
 // ============================================================================
 router.get('/files/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
@@ -81,6 +71,46 @@ router.get('/files/:filename', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
   return res.sendFile(filePath);
+});
+
+// ============================================================================
+// SINGLE-REQUEST LOCAL UPLOAD (Super fast, safe on Serverless)
+// ============================================================================
+router.post('/local-upload', (req, res) => {
+  uploadMemoryMiddleware.single('file')(req, res, (err) => {
+    if (err) {
+      console.error('[Local Upload Multer Error]:', err);
+      return res.status(400).json({ error: err.message || 'File upload parsing failed.' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded.' });
+    }
+
+    try {
+      ensureUploadsDir();
+      const cleanName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const targetFilename = `${Date.now()}-${cleanName}`;
+      const targetPath = path.join(uploadsDir, targetFilename);
+
+      fs.writeFileSync(targetPath, req.file.buffer);
+
+      const fileUrl = `/api/blob/files/${targetFilename}`;
+      console.log(`[Local Upload] Received: ${req.file.originalname} (${req.file.size} bytes) -> ${fileUrl}`);
+
+      return res.status(200).json({
+        url: fileUrl,
+        downloadUrl: fileUrl,
+        pathname: `quickshare/${targetFilename}`,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimeType: req.file.mimetype || 'application/octet-stream'
+      });
+    } catch (writeErr) {
+      console.error('[Local Upload Disk Error]:', writeErr);
+      return res.status(500).json({ error: `File write failed: ${writeErr.message}` });
+    }
+  });
 });
 
 // ============================================================================
@@ -134,9 +164,13 @@ router.post('/chunk/init', (req, res) => {
 });
 
 // 2. Append Chunk Slice Directly to File on Disk
-router.post('/chunk/upload', chunkMulter.single('chunk'), (req, res) => {
-  try {
-    const { uploadId } = req.body;
+router.post('/chunk/upload', (req, res) => {
+  chunkMulter.single('chunk')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: err.message || 'Chunk parsing error.' });
+    }
+
+    const { uploadId, targetFilename } = req.body;
     const chunkFile = req.file;
 
     if (!uploadId || !chunkFile) {
@@ -145,8 +179,6 @@ router.post('/chunk/upload', chunkMulter.single('chunk'), (req, res) => {
 
     let session = chunkSessions.get(uploadId);
     if (!session) {
-      // In serverless multi-instance fallback, if session is not in memory, attempt re-linking to file
-      const targetFilename = req.body.targetFilename;
       if (targetFilename) {
         const targetPath = path.join(uploadsDir, path.basename(targetFilename));
         session = { targetPath, writtenBytes: 0, lastActivity: Date.now() };
@@ -155,18 +187,20 @@ router.post('/chunk/upload', chunkMulter.single('chunk'), (req, res) => {
       }
     }
 
-    fs.appendFileSync(session.targetPath, chunkFile.buffer);
-    session.writtenBytes = (session.writtenBytes || 0) + chunkFile.buffer.length;
-    session.lastActivity = Date.now();
+    try {
+      fs.appendFileSync(session.targetPath, chunkFile.buffer);
+      session.writtenBytes = (session.writtenBytes || 0) + chunkFile.buffer.length;
+      session.lastActivity = Date.now();
 
-    return res.status(200).json({
-      success: true,
-      writtenBytes: session.writtenBytes
-    });
-  } catch (err) {
-    console.error(`[Chunked Upload] Error writing chunk:`, err);
-    return res.status(500).json({ error: `Disk write error: ${err.message}` });
-  }
+      return res.status(200).json({
+        success: true,
+        writtenBytes: session.writtenBytes
+      });
+    } catch (writeErr) {
+      console.error(`[Chunked Upload] Error writing chunk:`, writeErr);
+      return res.status(500).json({ error: `Disk write error: ${writeErr.message}` });
+    }
+  });
 });
 
 // 3. Finalize & Complete Chunked Upload
@@ -203,27 +237,6 @@ router.post('/chunk/complete', (req, res) => {
     console.error('[Chunk Complete Error]:', error);
     return res.status(500).json({ error: error.message || 'Complete assembly failed' });
   }
-});
-
-// ============================================================================
-// SINGLE-REQUEST LOCAL UPLOAD (Standard smaller files fallback)
-// ============================================================================
-router.post('/local-upload', uploadMiddleware.single('file'), (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: 'No file uploaded.' });
-  }
-
-  const fileUrl = `/api/blob/files/${req.file.filename}`;
-  console.log(`[Local Upload] Received: ${req.file.originalname} (${req.file.size} bytes) -> ${fileUrl}`);
-
-  return res.status(200).json({
-    url: fileUrl,
-    downloadUrl: fileUrl,
-    pathname: `quickshare/${req.file.filename}`,
-    originalName: req.file.originalname,
-    size: req.file.size,
-    mimeType: req.file.mimetype || 'application/octet-stream'
-  });
 });
 
 // Route for handling Vercel Blob client token generation (Production mode)

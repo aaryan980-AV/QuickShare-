@@ -1,1 +1,25 @@
-{"name":"quickshare-app","version":"1.0.0","private":true,"scripts":{"dev:backend":"npm --prefix backend run dev","dev:frontend":"npm --prefix frontend run dev","build:backend":"npm --prefix backend run build","build:frontend":"npm --prefix frontend run build","build":"npm run build:frontend && npm run build:backend","install:all":"npm --prefix backend install && npm --prefix frontend install"}}
+﻿{
+  "name": "quickshare-app",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "build": "npm run build:frontend",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install"
+  },
+  "dependencies": {
+    "@vercel/blob": "^0.27.1",
+    "@vercel/kv": "^3.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "multer": "^2.2.0",
+    "qrcode": "^1.5.4"
+  }
+}
