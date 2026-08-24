@@ -1,30 +1,44 @@
 ﻿/**
  * Reliable cross-browser file download trigger
- * Handles Blob URLs, relative paths, mixed origin, and enforces clean filenames.
+ * Handles Data URLs, Blob URLs, relative paths, and direct downloads.
  */
 export async function triggerFileDownload(rawUrl, filename) {
   try {
-    let url = rawUrl;
+    const url = rawUrl;
 
-    // Resolve relative URLs to the current page origin
-    if (url.startsWith('/')) {
-      url = `${window.location.origin}${url}`;
-    } else if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) {
+    // 1. Data URLs: Instant zero-network client download
+    if (url.startsWith('data:')) {
+      const link = document.createElement('a');
+      link.style.display = 'none';
+      link.href = url;
+      link.download = filename || 'download';
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 1500);
+      return;
+    }
+
+    // 2. Relative URLs: Prefix current origin
+    let targetUrl = url;
+    if (targetUrl.startsWith('/')) {
+      targetUrl = `${window.location.origin}${targetUrl}`;
+    } else if (targetUrl.startsWith('http://localhost') || targetUrl.startsWith('http://127.0.0.1')) {
       if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
         try {
-          const parsed = new URL(url);
-          url = `${window.location.origin}${parsed.pathname}${parsed.search}`;
+          const parsed = new URL(targetUrl);
+          targetUrl = `${window.location.origin}${parsed.pathname}${parsed.search}`;
         } catch {
           // ignore
         }
       }
     }
 
-    // Append download hint and original filename query parameter
-    const separator = url.includes('?') ? '&' : '?';
-    const downloadUrl = `${url}${separator}download=1&name=${encodeURIComponent(filename || 'download')}`;
+    const separator = targetUrl.includes('?') ? '&' : '?';
+    const downloadUrl = `${targetUrl}${separator}download=1&name=${encodeURIComponent(filename || 'download')}`;
 
-    // Primary: Try In-Memory Blob Fetch for 100% reliable local/browser saving
+    // 3. Try In-Memory Blob Fetch
     try {
       const response = await fetch(downloadUrl);
       if (response.ok) {
@@ -46,7 +60,7 @@ export async function triggerFileDownload(rawUrl, filename) {
       console.warn('[Download] In-memory blob fetch fallback to direct anchor:', fetchErr);
     }
 
-    // Fallback: Direct hidden anchor tag
+    // 4. Direct Anchor Fallback
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.download = filename || 'download';
