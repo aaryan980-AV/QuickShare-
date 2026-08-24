@@ -1,12 +1,19 @@
 ﻿import fs from 'fs';
 import path from 'path';
+import os from 'os';
 import { createClient } from '@vercel/kv';
 import { config } from '../config.js';
 
 class PersistentFileMemoryStorage {
   constructor() {
     this.store = new Map();
-    this.filePath = path.resolve('.local_shares.json');
+    
+    // On Vercel serverless, root directory is read-only, so use /tmp
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+    this.filePath = isServerless 
+      ? path.join(os.tmpdir(), '.local_shares.json') 
+      : path.resolve('.local_shares.json');
+
     this.loadFromDisk();
 
     // Cleanup expired keys every 60 seconds
@@ -27,7 +34,7 @@ class PersistentFileMemoryStorage {
         console.log(`[Storage] Loaded ${this.store.size} active share(s) from disk cache.`);
       }
     } catch (err) {
-      console.warn('[Storage] Error loading local cache:', err.message);
+      console.warn('[Storage] Error loading cache (in-memory mode active):', err.message);
     }
   }
 
@@ -39,7 +46,7 @@ class PersistentFileMemoryStorage {
       }
       fs.writeFileSync(this.filePath, JSON.stringify(obj, null, 2), 'utf8');
     } catch (err) {
-      console.warn('[Storage] Error saving local cache:', err.message);
+      // In-memory continues working even if disk write fails on serverless
     }
   }
 
@@ -148,7 +155,7 @@ if (config.kvRestApiUrl && config.kvRestApiToken) {
   storageInstance = new VercelKVStorage(config.kvRestApiUrl, config.kvRestApiToken);
 } else {
   if (config.isVercel) {
-    console.warn('[Storage] WARNING: Running on Vercel without KV_REST_API_URL/TOKEN. Memory fallback used.');
+    console.log('[Storage] Running on Vercel Serverless (using temp disk + memory).');
   } else {
     console.log('[Storage] Initializing Persistent Local Storage for development.');
   }
