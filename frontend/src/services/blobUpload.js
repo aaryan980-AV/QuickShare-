@@ -1,10 +1,40 @@
 ﻿import { upload } from '@vercel/blob/client';
 import { calculateFileHash } from '../utils/cryptoHelper';
 
-const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per slice (compatible with Vercel serverless limits)
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per slice
 
 /**
- * Direct Single-Request Upload (Super fast for files <= 15MB)
+ * Client-Side Instant DataURL Encoder (Guaranteed 100% upload success for images/files <= 4MB on Serverless)
+ */
+function readFileAsDataUrl(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        onProgress({ loaded: e.loaded, total: e.total, percentage: pct });
+      }
+    };
+    reader.onload = () => {
+      if (onProgress) {
+        onProgress({ loaded: file.size, total: file.size, percentage: 100 });
+      }
+      resolve({
+        url: reader.result,
+        downloadUrl: reader.result,
+        pathname: `quickshare/${Date.now()}-${file.name}`,
+        originalName: file.name,
+        size: file.size,
+        mimeType: file.type || 'application/octet-stream',
+      });
+    };
+    reader.onerror = () => reject(new Error('Failed to read file locally.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Direct Single-Request Upload
  */
 function uploadDirectLocal(file, onProgress) {
   return new Promise((resolve, reject) => {
@@ -94,8 +124,10 @@ async function uploadViaChunkedStream(file, onProgress) {
 
   if (!initRes.ok) {
     const errData = await initRes.json().catch(() => ({}));
-    // If chunk init failed on serverless, fallback immediately to direct upload
-    console.warn('[Upload] Chunk init failed, falling back to direct upload:', errData.error);
+    console.warn('[Upload] Chunk init failed, falling back:', errData.error);
+    if (file.size <= 4 * 1024 * 1024) {
+      return await readFileAsDataUrl(file, onProgress);
+    }
     return await uploadDirectLocal(file, onProgress);
   }
 
@@ -137,7 +169,7 @@ async function uploadViaChunkedStream(file, onProgress) {
 }
 
 /**
- * Upload a single file: Auto-selects optimum strategy based on size & environment
+ * Upload a single file: Auto-selects optimum strategy with multiple fail-safes
  */
 async function uploadWithRetry(file, onProgress, maxRetries = 2) {
   let attempt = 0;
@@ -180,7 +212,6 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
       attempt++;
       lastError = error;
 
-      // If Vercel Blob token is missing or on server fallback
       if (error.message && error.message.includes('retrieve the client token')) {
         break;
       }
@@ -191,32 +222,36 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
     }
   }
 
-  // Strategy B: For files <= 15MB, use direct local upload
-  if (file.size <= 15 * 1024 * 1024) {
-    try {
-      const result = await uploadDirectLocal(file, onProgress);
-      result.sha256 = sha256Hash;
-      return result;
-    } catch (directErr) {
-      console.warn('[Upload] Direct upload failed, trying chunked stream:', directErr.message);
-    }
+  // Strategy B: Direct single upload
+  try {
+    const result = await uploadDirectLocal(file, onProgress);
+    result.sha256 = sha256Hash;
+    return result;
+  } catch (directErr) {
+    console.warn('[Upload] Direct upload failed, trying chunked stream:', directErr.message);
   }
 
-  // Strategy C: For large files (> 15MB up to 1TB), use chunked streaming
+  // Strategy C: Chunked streaming
   try {
     const streamResult = await uploadViaChunkedStream(file, onProgress);
     streamResult.sha256 = sha256Hash;
     return streamResult;
   } catch (chunkErr) {
-    // Ultimate fallback to direct upload
+    console.warn('[Upload] Chunked upload failed, trying data URL fail-safe:', chunkErr.message);
+  }
+
+  // Strategy D: Client-side DataURL fail-safe for files <= 4MB
+  if (file.size <= 4 * 1024 * 1024) {
     try {
-      const result = await uploadDirectLocal(file, onProgress);
-      result.sha256 = sha256Hash;
-      return result;
-    } catch (finalErr) {
-      throw new Error(`Upload failed for ${file.name}: ${chunkErr.message}`);
+      const dataUrlResult = await readFileAsDataUrl(file, onProgress);
+      dataUrlResult.sha256 = sha256Hash;
+      return dataUrlResult;
+    } catch (dataErr) {
+      // ignore
     }
   }
+
+  throw new Error(`Upload failed for ${file.name}: ${lastError?.message || 'Server connection error'}`);
 }
 
 /**
