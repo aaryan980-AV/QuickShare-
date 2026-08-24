@@ -19,7 +19,17 @@ export async function createShareBatch(files, options = {}) {
     }),
   });
 
-  const data = await response.json();
+  let data = null;
+  const rawText = await response.text();
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    if (response.status === 413) {
+      throw new Error('Total batch payload exceeds server limit. Please upload files individually or connect Vercel Blob.');
+    }
+    throw new Error(`Server error (${response.status}): ${rawText.slice(0, 100)}`);
+  }
+
   if (!response.ok) {
     throw new Error(data.error || 'Failed to create share batch.');
   }
@@ -40,11 +50,18 @@ export async function getShareByCode(code, password) {
     },
   });
 
-  const data = await response.json();
+  let data = null;
+  const rawText = await response.text();
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Server response error (${response.status})`);
+  }
+
   if (!response.ok) {
-    const error = new Error(data.error || 'Share not found or expired.');
+    const error = new Error(data?.error || 'Share not found or expired.');
     error.status = response.status;
-    error.requiresPassword = data.requiresPassword;
+    error.requiresPassword = data?.requiresPassword;
     throw error;
   }
 
