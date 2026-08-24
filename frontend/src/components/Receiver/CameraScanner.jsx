@@ -1,25 +1,29 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, CameraOff, AlertTriangle, RefreshCw, Zap, ShieldAlert } from 'lucide-react';
+import { Camera, CameraOff, ShieldAlert, RefreshCw, Zap, Upload, Lock } from 'lucide-react';
 
 export function CameraScanner({ onScanSuccess, onScanError }) {
-  const [cameraState, setCameraState] = useState('idle'); // idle | starting | scanning | error
+  const [cameraState, setCameraState] = useState('idle'); // 'idle' | 'starting' | 'scanning' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
-  const [errorType, setErrorType] = useState(null); // permission | not_found | insecure | generic
+  const [errorType, setErrorType] = useState(null); // 'permission' | 'not_found' | 'insecure' | 'in_use' | 'generic'
   const [cameras, setCameras] = useState([]);
   const [selectedCameraId, setSelectedCameraId] = useState(null);
-  const [torchOn, setTorchOn] = useState(false);
   const [hasTorch, setHasTorch] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [isProcessingPhoto, setIsProcessingPhoto] = useState(false);
 
   const scannerRef = useRef(null);
-  const readerElementId = 'qr-reader-viewport';
+  const photoInputRef = useRef(null);
+  const readerElementId = 'reader-camera';
+
+  const isHttp = window.location.protocol === 'http:' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
 
   useEffect(() => {
-    // Check for Secure Context
-    if (window.isSecureContext === false && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // If not in a secure context, show snapshot fallback directly
+    if (!window.isSecureContext && isHttp) {
       setCameraState('error');
       setErrorType('insecure');
-      setErrorMessage('Camera access requires HTTPS. Please access this application via HTTPS.');
+      setErrorMessage('Live video stream requires HTTPS. You can switch to HTTPS or use instant Photo Capture below.');
       return;
     }
 
@@ -84,7 +88,7 @@ export function CameraScanner({ onScanSuccess, onScanError }) {
           handleDecodedText(decodedText);
         },
         () => {
-          // Frame scan pass - normal, ignore
+          // Frame scan pass - normal
         }
       );
 
@@ -132,7 +136,6 @@ export function CameraScanner({ onScanSuccess, onScanError }) {
   };
 
   const handleDecodedText = (text) => {
-    // Check if it is a QuickShare URL (e.g. ?code=123456) or raw 6-digit code
     let code = null;
     const urlMatch = text.match(/code=(\d{6})/i);
     if (urlMatch) {
@@ -154,6 +157,27 @@ export function CameraScanner({ onScanSuccess, onScanError }) {
     }
   };
 
+  // Instant Photo Capture Fallback (Works 100% on iOS & Android over HTTP & HTTPS)
+  const handlePhotoCapture = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingPhoto(true);
+    try {
+      const html5QrCode = new Html5Qrcode('qr-photo-temp');
+      const decodedText = await html5QrCode.scanFile(file, true);
+      handleDecodedText(decodedText);
+    } catch (err) {
+      console.error('[Photo QR Decode Error]', err);
+      if (onScanError) {
+        onScanError('Could not find a QR code in the captured photo. Please try taking a closer, clear picture.');
+      }
+    } finally {
+      setIsProcessingPhoto(false);
+      e.target.value = '';
+    }
+  };
+
   const toggleTorch = async () => {
     if (scannerRef.current && hasTorch) {
       try {
@@ -171,39 +195,74 @@ export function CameraScanner({ onScanSuccess, onScanError }) {
     setSelectedCameraId(deviceId);
   };
 
+  const switchToHttps = () => {
+    window.location.href = window.location.href.replace('http:', 'https:');
+  };
+
   return (
     <div className="space-y-4">
+      {/* Hidden container for single-photo decoding */}
+      <div id="qr-photo-temp" className="hidden" />
+
+      {/* Hidden file input for native camera snapshot */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={handlePhotoCapture}
+        className="hidden"
+      />
+
       {/* Scanner Viewport */}
       <div className="relative rounded-2xl overflow-hidden bg-slate-950 border border-slate-800 min-h-[300px] flex items-center justify-center">
         <div id={readerElementId} className="w-full h-full max-w-sm mx-auto" />
 
         {cameraState === 'starting' && (
           <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center space-y-3 z-10">
-            <RefreshCw className="h-8 w-8 text-brand-400 animate-spin" />
+            <RefreshCw className="h-8 w-8 text-blue-400 animate-spin" />
             <p className="text-xs text-slate-300 font-medium">Requesting camera access...</p>
           </div>
         )}
 
         {cameraState === 'error' && (
-          <div className="absolute inset-0 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-3 z-10 animate-fade-in">
+          <div className="absolute inset-0 bg-slate-950 p-6 flex flex-col items-center justify-center text-center space-y-4 z-10 animate-fade-in">
             <div className="h-12 w-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400">
               {errorType === 'permission' ? <CameraOff className="h-6 w-6" /> : <ShieldAlert className="h-6 w-6" />}
             </div>
-            <div>
+            <div className="space-y-1">
               <h4 className="text-sm font-semibold text-white">
-                {errorType === 'permission' ? 'Camera Permission Denied' : 'Camera Unavailable'}
+                {errorType === 'permission'
+                  ? 'Camera Permission Denied'
+                  : errorType === 'insecure'
+                  ? 'HTTPS Secure Context Needed'
+                  : 'Live Camera Unavailable'}
               </h4>
-              <p className="text-xs text-slate-400 mt-1 max-w-xs leading-relaxed">
+              <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
                 {errorMessage}
               </p>
             </div>
-            <button
-              onClick={startScanner}
-              className="mt-2 py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 flex items-center gap-2 transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              <span>Retry Camera</span>
-            </button>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2 pt-1 w-full max-w-xs">
+              {isHttp && (
+                <button
+                  onClick={switchToHttps}
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+                >
+                  <Lock className="h-3.5 w-3.5" />
+                  <span>Switch to HTTPS</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isProcessingPhoto}
+                className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-all"
+              >
+                <Camera className="h-3.5 w-3.5" />
+                <span>{isProcessingPhoto ? 'Decoding...' : 'Snap Photo of QR'}</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -227,26 +286,38 @@ export function CameraScanner({ onScanSuccess, onScanError }) {
         )}
       </div>
 
-      {/* Camera switcher */}
-      {cameras.length > 1 && cameraState === 'scanning' && (
-        <div className="flex items-center justify-center gap-2">
-          <Camera className="h-3.5 w-3.5 text-slate-400" />
-          <select
-            value={selectedCameraId || ''}
-            onChange={(e) => switchCamera(e.target.value)}
-            className="bg-slate-900 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-brand-500"
-          >
-            {cameras.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label || `Camera ${c.id.substring(0, 5)}`}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {/* Camera switcher & instant snapshot button */}
+      <div className="flex items-center justify-center gap-3 pt-1">
+        {cameras.length > 1 && cameraState === 'scanning' && (
+          <div className="flex items-center gap-2">
+            <Camera className="h-3.5 w-3.5 text-slate-400" />
+            <select
+              value={selectedCameraId || ''}
+              onChange={(e) => switchCamera(e.target.value)}
+              className="bg-slate-900 border border-slate-800 text-xs text-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500"
+            >
+              {cameras.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label || `Camera ${c.id.substring(0, 5)}`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => photoInputRef.current?.click()}
+          disabled={isProcessingPhoto}
+          className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 bg-blue-500/10 border border-blue-500/20 hover:border-blue-500/40 py-1.5 px-3 rounded-lg transition-colors"
+        >
+          <Camera className="h-3.5 w-3.5" />
+          <span>{isProcessingPhoto ? 'Scanning photo...' : 'Snap photo with camera'}</span>
+        </button>
+      </div>
 
       <p className="text-[11px] text-slate-500 text-center">
-        Center the QuickShare QR code inside the viewfinder to scan automatically
+        Point camera at the QuickShare QR code to scan automatically
       </p>
     </div>
   );

@@ -1,63 +1,97 @@
-import { upload } from '@vercel/blob/client';
+﻿import { upload } from '@vercel/blob/client';
+import { calculateFileHash } from '../utils/cryptoHelper';
+
+const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB per slice for streaming 1TB+ files
 
 /**
- * Upload a single file via local backend endpoint (fallback when Vercel Blob token is not set)
+ * Upload a single chunk slice
  */
-function uploadViaLocalServer(file, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const formData = new FormData();
-    formData.append('file', file);
+async function uploadSingleChunk(uploadId, chunkBlob) {
+  const formData = new FormData();
+  formData.append('uploadId', uploadId);
+  formData.append('chunk', chunkBlob);
 
-    xhr.open('POST', '/api/blob/local-upload', true);
-
-    if (xhr.upload && onProgress) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percentage = Math.round((event.loaded / event.total) * 100);
-          onProgress({
-            loaded: event.loaded,
-            total: event.total,
-            percentage: percentage,
-          });
-        }
-      };
-    }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try {
-          const json = JSON.parse(xhr.responseText);
-          resolve(json);
-        } catch (e) {
-          reject(new Error('Invalid response from server'));
-        }
-      } else {
-        try {
-          const errData = JSON.parse(xhr.responseText);
-          reject(new Error(errData.error || 'Local upload failed'));
-        } catch {
-          reject(new Error(`Upload failed with HTTP ${xhr.status}`));
-        }
-      }
-    };
-
-    xhr.onerror = () => {
-      reject(new Error('Network error during upload'));
-    };
-
-    xhr.send(formData);
+  const response = await fetch('/api/blob/chunk/upload', {
+    method: 'POST',
+    body: formData,
   });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `Chunk upload failed with HTTP ${response.status}`);
+  }
+
+  return await response.json();
 }
 
 /**
- * Upload a single file: Tries direct Vercel Blob first; if no token configured, falls back to local server
+ * High-performance Chunked Stream Upload (Zero RAM buffering, supports up to 1 TB)
+ */
+async function uploadViaChunkedStream(file, onProgress) {
+  // Step 1: Initialize session
+  const initRes = await fetch('/api/blob/chunk/init', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      filename: file.name,
+      totalSize: file.size,
+      mimeType: file.type || 'application/octet-stream',
+    }),
+  });
+
+  if (!initRes.ok) {
+    const errData = await initRes.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to initialize chunked upload session.');
+  }
+
+  const { uploadId, chunkSize = CHUNK_SIZE } = await initRes.json();
+
+  // Step 2: Slice and stream chunks sequentially
+  let offset = 0;
+  const totalSize = file.size;
+
+  while (offset < totalSize) {
+    const chunkBlob = file.slice(offset, Math.min(offset + chunkSize, totalSize));
+    await uploadSingleChunk(uploadId, chunkBlob);
+
+    offset += chunkBlob.size;
+
+    if (onProgress) {
+      const pct = totalSize > 0 ? Math.round((offset / totalSize) * 100) : 100;
+      onProgress({
+        loaded: offset,
+        total: totalSize,
+        percentage: pct,
+      });
+    }
+  }
+
+  // Step 3: Complete and assemble file descriptor
+  const completeRes = await fetch('/api/blob/chunk/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uploadId }),
+  });
+
+  if (!completeRes.ok) {
+    const errData = await completeRes.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to finalize chunked file assembly.');
+  }
+
+  return await completeRes.json();
+}
+
+/**
+ * Upload a single file: Tries Vercel Blob first; falls back to High-Speed Chunked Streaming
  */
 async function uploadWithRetry(file, onProgress, maxRetries = 2) {
   let attempt = 0;
   let lastError = null;
 
-  // Try direct Vercel Blob client upload first
+  // Calculate memory-safe SHA-256 fingerprint in background
+  const sha256Hash = await calculateFileHash(file);
+
+  // Try direct Vercel Blob client upload first if token exists
   while (attempt < maxRetries) {
     try {
       const timestamp = Date.now();
@@ -85,15 +119,17 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
         originalName: file.name,
         size: file.size,
         mimeType: file.type || 'application/octet-stream',
+        sha256: sha256Hash,
       };
     } catch (error) {
       attempt++;
       lastError = error;
 
-      // If token is missing, seamlessly fall back to local dev upload endpoint
       if (error.message && error.message.includes('retrieve the client token')) {
-        console.log(`[Upload] Vercel Blob token not found, seamlessly using local dev server upload for ${file.name}`);
-        return await uploadViaLocalServer(file, onProgress);
+        console.log(`[Upload] Streaming chunked upload for "${file.name}" (${file.size} bytes)`);
+        const streamResult = await uploadViaChunkedStream(file, onProgress);
+        streamResult.sha256 = sha256Hash;
+        return streamResult;
       }
 
       if (attempt < maxRetries) {
@@ -102,20 +138,22 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
     }
   }
 
-  // Fallback to local server upload if Vercel Blob failed
+  // Fallback to chunked streaming upload
   try {
-    return await uploadViaLocalServer(file, onProgress);
+    const streamResult = await uploadViaChunkedStream(file, onProgress);
+    streamResult.sha256 = sha256Hash;
+    return streamResult;
   } catch (localErr) {
     throw new Error(`Failed to upload ${file.name}: ${localErr.message || lastError?.message}`);
   }
 }
 
 /**
- * Upload multiple files with controlled concurrency and progress tracking
+ * Upload multiple files with controlled concurrency and aggregate progress tracking
  */
 export async function uploadFilesBatch(files, options = {}) {
   const {
-    concurrency = 3,
+    concurrency = 2,
     onFileProgress,
     onTotalProgress,
     onFileComplete,

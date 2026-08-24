@@ -1,4 +1,4 @@
-node_modules
+﻿node_modules
 .DS_Store
 dist
 dist-ssr
@@ -10,3 +10,5 @@ dist-ssr
 .vercel
 uploads
 backend/uploads
+.local_shares.json
+backend/.local_shares.json

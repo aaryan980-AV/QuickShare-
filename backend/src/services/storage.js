@@ -1,11 +1,46 @@
+﻿import fs from 'fs';
+import path from 'path';
 import { createClient } from '@vercel/kv';
 import { config } from '../config.js';
 
-class MemoryStorageFallback {
+class PersistentFileMemoryStorage {
   constructor() {
     this.store = new Map();
+    this.filePath = path.resolve('.local_shares.json');
+    this.loadFromDisk();
+
     // Cleanup expired keys every 60 seconds
     setInterval(() => this.cleanup(), 60 * 1000);
+  }
+
+  loadFromDisk() {
+    try {
+      if (fs.existsSync(this.filePath)) {
+        const raw = fs.readFileSync(this.filePath, 'utf8');
+        const parsed = JSON.parse(raw);
+        const now = Date.now();
+        for (const [code, item] of Object.entries(parsed)) {
+          if (item && item.expiresAt > now) {
+            this.store.set(code, item);
+          }
+        }
+        console.log(`[Storage] Loaded ${this.store.size} active share(s) from disk cache.`);
+      }
+    } catch (err) {
+      console.warn('[Storage] Error loading local cache:', err.message);
+    }
+  }
+
+  saveToDisk() {
+    try {
+      const obj = {};
+      for (const [code, item] of this.store.entries()) {
+        obj[code] = item;
+      }
+      fs.writeFileSync(this.filePath, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (err) {
+      console.warn('[Storage] Error saving local cache:', err.message);
+    }
   }
 
   async saveShare(code, data, ttlSeconds) {
@@ -14,6 +49,7 @@ class MemoryStorageFallback {
       data,
       expiresAt
     });
+    this.saveToDisk();
     return true;
   }
 
@@ -22,13 +58,18 @@ class MemoryStorageFallback {
     if (!item) return null;
     if (Date.now() > item.expiresAt) {
       this.store.delete(code);
+      this.saveToDisk();
       return null;
     }
     return item.data;
   }
 
   async deleteShare(code) {
-    return this.store.delete(code);
+    const deleted = this.store.delete(code);
+    if (deleted) {
+      this.saveToDisk();
+    }
+    return deleted;
   }
 
   async codeExists(code) {
@@ -38,15 +79,20 @@ class MemoryStorageFallback {
 
   cleanup() {
     const now = Date.now();
+    let changed = false;
     for (const [code, item] of this.store.entries()) {
       if (now > item.expiresAt) {
         this.store.delete(code);
+        changed = true;
       }
+    }
+    if (changed) {
+      this.saveToDisk();
     }
   }
 
   getType() {
-    return 'in-memory-fallback';
+    return 'local-persistent-storage';
   }
 }
 
@@ -60,7 +106,6 @@ class VercelKVStorage {
 
   async saveShare(code, data, ttlSeconds) {
     const key = `share:${code}`;
-    // Store JSON with TTL (ex in seconds)
     await this.kv.set(key, JSON.stringify(data), { ex: ttlSeconds });
     return true;
   }
@@ -103,11 +148,11 @@ if (config.kvRestApiUrl && config.kvRestApiToken) {
   storageInstance = new VercelKVStorage(config.kvRestApiUrl, config.kvRestApiToken);
 } else {
   if (config.isVercel) {
-    console.warn('[Storage] WARNING: Running on Vercel without KV_REST_API_URL/TOKEN. Memory fallback used (data will not persist across function invocations).');
+    console.warn('[Storage] WARNING: Running on Vercel without KV_REST_API_URL/TOKEN. Memory fallback used.');
   } else {
-    console.log('[Storage] Initializing In-Memory storage fallback for local development.');
+    console.log('[Storage] Initializing Persistent Local Storage for development.');
   }
-  storageInstance = new MemoryStorageFallback();
+  storageInstance = new PersistentFileMemoryStorage();
 }
 
 export const storage = storageInstance;

@@ -1,5 +1,7 @@
-import dotenv from 'dotenv';
+﻿import dotenv from 'dotenv';
 dotenv.config();
+
+const ONE_TB_BYTES = 1024 * 1024 * 1024 * 1024; // 1 TB (1,099,511,627,776 bytes)
 
 export const config = {
   port: parseInt(process.env.PORT || '3001', 10),
@@ -11,9 +13,9 @@ export const config = {
   // Expiry defaults to 24 hours (86,400 seconds)
   codeExpirySeconds: parseInt(process.env.CODE_EXPIRY_SECONDS || '86400', 10),
   
-  // Storage constraints
-  maxFileSizeBytes: 500 * 1024 * 1024, // 500 MB per file
-  maxBatchSizeBytes: 1000 * 1024 * 1024, // 1000 MB total per share batch
+  // Storage constraints (Supports up to 1 TB)
+  maxFileSizeBytes: ONE_TB_BYTES,
+  maxBatchSizeBytes: ONE_TB_BYTES,
   
   // Vercel credentials
   blobToken: process.env.BLOB_READ_WRITE_TOKEN,

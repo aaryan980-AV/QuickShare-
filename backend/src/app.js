@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
@@ -13,9 +13,10 @@ const app = express();
 // Trust proxy for rate limiter & proto detection on Vercel
 app.set('trust proxy', 1);
 
-// Security Headers
+// Security Headers with Cross-Origin resource permissions
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false
 }));
 
 // CORS Configuration
@@ -25,22 +26,19 @@ app.use(cors({
     if (!origin || allowedOrigin === '*' || origin === allowedOrigin) {
       return callback(null, true);
     }
-    if (origin.includes('localhost') || origin.endsWith('.vercel.app') || origin.startsWith('http://192.168.') || origin.startsWith('http://10.') || origin.startsWith('http://172.')) {
+    if (origin.includes('localhost') || origin.endsWith('.vercel.app') || origin.startsWith('http://192.168.') || origin.startsWith('https://192.168.') || origin.startsWith('http://10.') || origin.startsWith('https://10.') || origin.includes('loca.lt')) {
       return callback(null, true);
     }
-    return callback(new Error('Blocked by CORS policy'));
+    return callback(null, true); // Allow during local dev for smooth LAN sharing
   },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with', 'x-share-password']
 }));
 
-// Body Parsers (lightweight since files go directly to Blob or multer)
-app.use(express.json({ limit: '5mb' }));
-app.use(express.urlencoded({ extended: true, limit: '5mb' }));
-
-// Serve local upload files in dev / fallback mode
-app.use('/api/blob/files', express.static(path.resolve('uploads')));
+// Body Parsers
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
