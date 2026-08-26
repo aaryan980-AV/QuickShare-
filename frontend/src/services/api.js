@@ -1,6 +1,63 @@
-﻿/**
+/**
  * Frontend API client communicating with /api/* routes
  */
+
+export async function initShareBatch(filesMeta, options = {}) {
+  const { password, selfDestruct, expirySeconds } = options;
+
+  const response = await fetch('/api/shares/init', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filesMeta,
+      clientOrigin: window.location.origin,
+      password: password || undefined,
+      selfDestruct: Boolean(selfDestruct),
+      expirySeconds: expirySeconds ? Number(expirySeconds) : undefined,
+    }),
+  });
+
+  let data = null;
+  const rawText = await response.text();
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Server error (${response.status}): ${rawText.slice(0, 100)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to initialize share batch.');
+  }
+
+  return data;
+}
+
+export async function finalizeShareBatch(code, files) {
+  const cleanCode = String(code).replace(/\D/g, '');
+  const response = await fetch(`/api/shares/${encodeURIComponent(cleanCode)}/finalize`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ files }),
+  });
+
+  let data = null;
+  const rawText = await response.text();
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error(`Server error (${response.status}): ${rawText.slice(0, 100)}`);
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to finalize share batch.');
+  }
+
+  return data;
+}
 
 export async function createShareBatch(files, options = {}) {
   const { password, selfDestruct, expirySeconds } = options;

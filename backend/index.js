@@ -8,6 +8,16 @@ if (!process.env.VERCEL) {
     console.log(`[QuickShare Server] LAN URL: http://0.0.0.0:${config.port}`);
   });
 
+  // Optimize TCP Sockets for maximum throughput and zero latency
+  server.keepAliveTimeout = 65000;
+  server.headersTimeout = 66000;
+  server.maxRequestsPerSocket = 0;
+
+  server.on('connection', (socket) => {
+    socket.setNoDelay(true); // Disable Nagle's algorithm for instant packet dispatch
+    socket.setKeepAlive(true, 10000);
+  });
+
   // Graceful shutdown handling
   const shutdown = () => {
     console.log('\n[QuickShare Server] Shutting down gracefully...');

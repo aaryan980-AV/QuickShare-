@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Upload, Download, QrCode, KeyRound, Image as ImageIcon, ArrowLeft } from 'lucide-react';
 import { Alert } from './components/UI/Alert';
 import { FileDropzone } from './components/Sender/FileDropzone';
@@ -9,7 +9,7 @@ import { ImageScanner } from './components/Receiver/ImageScanner';
 import { FileDownloadList } from './components/Receiver/FileDownloadList';
 import { PasswordUnlockModal } from './components/Receiver/PasswordUnlockModal';
 import { uploadFilesBatch } from './services/blobUpload';
-import { createShareBatch, getShareByCode } from './services/api';
+import { initShareBatch, finalizeShareBatch, createShareBatch, getShareByCode } from './services/api';
 
 export function App() {
   // Navigation: 'home' | 'send' | 'receive'
@@ -78,7 +78,7 @@ export function App() {
     }
   }, []);
 
-  // Upload pipeline with security options
+  // Upload pipeline with instant share code and background streaming
   const handleStartUpload = async (securityOptions = {}) => {
     if (senderFiles.length === 0) return;
     setIsUploading(true);
@@ -87,19 +87,27 @@ export function App() {
     setUploadProgress({ percentage: 0, loaded: 0, total: 0, completedFiles: 0 });
 
     try {
-      // Step 1: Upload to Blob / Local storage with SHA-256 calculation
+      // Step 1: INSTANTLY generate 6-digit Code & QR Code (< 30ms)
+      const filesMeta = senderFiles.map((f) => ({
+        name: f.name,
+        size: f.size,
+        mimeType: f.type || 'application/octet-stream',
+      }));
+
+      const initialShare = await initShareBatch(filesMeta, securityOptions);
+      setSenderResult(initialShare);
+
+      // Step 2: Upload files in the background at full network speed with live progress
       const uploadedBlobs = await uploadFilesBatch(senderFiles, {
-        concurrency: 3,
+        concurrency: 6,
         onTotalProgress: (prog) => {
           setUploadProgress(prog);
         },
       });
 
-      // Step 2: Register batch with password & expiry options
-      const shareData = await createShareBatch(uploadedBlobs, securityOptions);
-
-      // Step 3: Set completed result
-      setSenderResult(shareData);
+      // Step 3: Finalize share session with uploaded file URLs
+      await finalizeShareBatch(initialShare.code, uploadedBlobs);
+      setSenderResult((prev) => ({ ...prev, ...initialShare, isReady: true, files: uploadedBlobs }));
     } catch (err) {
       console.error('[Upload Pipeline Error]', err);
       setSenderError(err.message || 'Failed to upload files. Please try again.');

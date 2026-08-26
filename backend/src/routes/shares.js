@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import crypto from 'crypto';
 import { config } from '../config.js';
 import { storage } from '../services/storage.js';
@@ -28,7 +28,169 @@ function verifyPassword(password, salt, expectedHash) {
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash));
 }
 
-// POST /api/shares/create
+// POST /api/shares/init (INSTANT 6-DIGIT CODE & QR GENERATION)
+router.post('/init', createShareLimiter, async (req, res, next) => {
+  try {
+    const { filesMeta, clientOrigin, password, selfDestruct, expirySeconds } = req.body;
+
+    if (!filesMeta || !Array.isArray(filesMeta) || filesMeta.length === 0) {
+      return res.status(400).json({ error: 'No files provided in share batch.' });
+    }
+
+    let totalSize = 0;
+    for (const f of filesMeta) {
+      totalSize += (Number(f.size) || 0);
+    }
+
+    // Generate unique 6-digit code with collision check
+    let code = null;
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    while (attempts < maxAttempts) {
+      const candidateCode = generateRandomCode();
+      const exists = await storage.codeExists(candidateCode);
+      if (!exists) {
+        code = candidateCode;
+        break;
+      }
+      attempts++;
+    }
+
+    if (!code) {
+      return res.status(500).json({ error: 'Could not generate unique share code. Please try again.' });
+    }
+
+    const validExpiry = expirySeconds && Number(expirySeconds) > 0
+      ? Math.min(Number(expirySeconds), 7 * 24 * 3600)
+      : config.codeExpirySeconds;
+
+    const now = Date.now();
+    const expiresAt = now + validExpiry * 1000;
+
+    let passwordData = null;
+    if (password && String(password).trim().length > 0) {
+      const { hash, salt } = hashPassword(String(password).trim());
+      passwordData = { hash, salt, failedAttempts: 0 };
+    }
+
+    let baseUrl = '';
+    if (config.isVercel || (config.appUrl && !config.appUrl.includes('localhost'))) {
+      baseUrl = config.appUrl.replace(/\/$/, '');
+    } else {
+      const lanIp = getLocalIpAddress();
+      const origin = clientOrigin || req.get('origin') || req.get('referer');
+      const protocol = origin && origin.startsWith('http:') ? 'http' : 'https';
+      
+      if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        try {
+          const parsed = new URL(origin);
+          baseUrl = parsed.origin;
+        } catch {
+          baseUrl = `${protocol}://${lanIp}:5173`;
+        }
+      } else {
+        baseUrl = `${protocol}://${lanIp}:5173`;
+      }
+    }
+    
+    const shareUrl = `${baseUrl}/?code=${code}`;
+    const qrCode = await generateQRCode(shareUrl);
+
+    const shareData = {
+      code,
+      shareUrl,
+      files: [],
+      filesMeta: filesMeta.map(f => ({
+        originalName: String(f.name || f.originalName || 'file').replace(/[^\w\s.-]/gi, '_'),
+        size: Number(f.size) || 0,
+        mimeType: f.mimeType || f.type || 'application/octet-stream'
+      })),
+      filesCount: filesMeta.length,
+      totalSize,
+      createdAt: now,
+      expiresAt,
+      isPasswordProtected: Boolean(passwordData),
+      passwordData,
+      selfDestruct: Boolean(selfDestruct),
+      downloadCount: 0,
+      isReady: false
+    };
+
+    await storage.saveShare(code, shareData, validExpiry);
+    console.log(`[Shares] Instant init for batch #${code} (${filesMeta.length} files, ${totalSize} bytes)`);
+
+    return res.status(201).json({
+      success: true,
+      code,
+      shareUrl,
+      qrCode,
+      expiresAt,
+      filesCount: filesMeta.length,
+      totalSize,
+      isPasswordProtected: Boolean(passwordData),
+      selfDestruct: Boolean(selfDestruct),
+      isReady: false
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/shares/:code/finalize (UPDATE WITH UPLOADED FILE URLS)
+router.post('/:code/finalize', async (req, res, next) => {
+  try {
+    const code = String(req.params.code).replace(/\D/g, '');
+    const { files } = req.body;
+
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'No files provided to finalize.' });
+    }
+
+    const share = await storage.getShare(code);
+    if (!share) {
+      return res.status(404).json({ error: 'Share session not found or expired.' });
+    }
+
+    let totalSize = 0;
+    const sanitizedFiles = [];
+    for (const file of files) {
+      const size = Number(file.size) || 0;
+      totalSize += size;
+      sanitizedFiles.push({
+        url: file.url,
+        downloadUrl: file.downloadUrl || file.url,
+        pathname: file.pathname || '',
+        originalName: String(file.originalName || 'file').replace(/[^\w\s.-]/gi, '_'),
+        size: size,
+        mimeType: file.mimeType || 'application/octet-stream',
+        sha256: file.sha256 || null
+      });
+    }
+
+    share.files = sanitizedFiles;
+    share.filesCount = sanitizedFiles.length;
+    share.totalSize = totalSize;
+    share.isReady = true;
+
+    const remainingTtl = Math.max(60, Math.round((share.expiresAt - Date.now()) / 1000));
+    await storage.saveShare(code, share, remainingTtl);
+
+    console.log(`[Shares] Finalized batch #${code} with ${sanitizedFiles.length} file(s)`);
+
+    return res.status(200).json({
+      success: true,
+      code,
+      isReady: true,
+      filesCount: sanitizedFiles.length,
+      totalSize
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/shares/create (Full Batch Creation)
 router.post('/create', createShareLimiter, async (req, res, next) => {
   try {
     const { files, clientOrigin, password, selfDestruct, expirySeconds } = req.body;
@@ -112,16 +274,17 @@ router.post('/create', createShareLimiter, async (req, res, next) => {
     } else {
       const lanIp = getLocalIpAddress();
       const origin = clientOrigin || req.get('origin') || req.get('referer');
+      const protocol = origin && origin.startsWith('http:') ? 'http' : 'https';
       
       if (origin && !origin.includes('localhost') && !origin.includes('127.0.0.1')) {
         try {
           const parsed = new URL(origin);
           baseUrl = parsed.origin;
         } catch {
-          baseUrl = `https://${lanIp}:5173`;
+          baseUrl = `${protocol}://${lanIp}:5173`;
         }
       } else {
-        baseUrl = `https://${lanIp}:5173`;
+        baseUrl = `${protocol}://${lanIp}:5173`;
       }
     }
     
@@ -227,13 +390,15 @@ router.get('/:code', codeLookupLimiter, async (req, res, next) => {
       success: true,
       code: share.code,
       shareUrl: share.shareUrl,
-      files: share.files,
+      files: share.files || [],
+      filesMeta: share.filesMeta || [],
       filesCount: share.filesCount,
       totalSize: share.totalSize,
       createdAt: share.createdAt,
       expiresAt: share.expiresAt,
       isPasswordProtected: share.isPasswordProtected,
-      selfDestruct: share.selfDestruct
+      selfDestruct: share.selfDestruct,
+      isReady: share.isReady !== false
     });
   } catch (error) {
     next(error);

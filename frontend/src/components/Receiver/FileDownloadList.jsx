@@ -1,18 +1,45 @@
-﻿import React, { useState } from 'react';
-import { Download, Check, FileCheck, ArrowLeft, Clock, ShieldCheck, Flame, Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Check, FileCheck, ArrowLeft, Clock, ShieldCheck, Flame, Lock, Loader2 } from 'lucide-react';
 import { formatBytes, formatTimeRemaining, getFileTypeInfo } from '../../utils/formatters';
 import { triggerFileDownload } from '../../utils/downloadHelper';
-import { notifyDownloaded } from '../../services/api';
+import { notifyDownloaded, getShareByCode } from '../../services/api';
 
-export function FileDownloadList({ shareData, onReset, onGoHome }) {
+export function FileDownloadList({ shareData: initialShareData, onReset, onGoHome }) {
+  const [shareData, setShareData] = useState(initialShareData);
   const [downloadedIndices, setDownloadedIndices] = useState(new Set());
   const [downloadingAll, setDownloadingAll] = useState(false);
   const [hasDestructed, setHasDestructed] = useState(false);
 
-  const { code, files = [], totalSize, expiresAt, isPasswordProtected, selfDestruct } = shareData;
+  useEffect(() => {
+    setShareData(initialShareData);
+  }, [initialShareData]);
+
+  const { code, files = [], filesMeta = [], totalSize, expiresAt, isPasswordProtected, selfDestruct, isReady = true } = shareData;
+
+  // Auto-poll if files are still finishing background upload on sender side
+  useEffect(() => {
+    if (isReady) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const latest = await getShareByCode(code);
+        if (latest && latest.isReady) {
+          setShareData(latest);
+          clearInterval(interval);
+        }
+      } catch (err) {
+        // ignore polling errors
+      }
+    }, 800);
+
+    return () => clearInterval(interval);
+  }, [code, isReady]);
+
+  const activeFiles = files.length > 0 ? files : filesMeta;
 
   const handleDownloadSingle = async (file, index) => {
-    triggerFileDownload(file.downloadUrl || file.url, file.originalName);
+    if (!isReady || !file.url) return;
+    triggerFileDownload(file.downloadUrl || file.url, file.originalName || file.name);
     setDownloadedIndices((prev) => new Set([...prev, index]));
 
     if (selfDestruct) {
@@ -22,10 +49,11 @@ export function FileDownloadList({ shareData, onReset, onGoHome }) {
   };
 
   const handleDownloadAll = async () => {
+    if (!isReady) return;
     setDownloadingAll(true);
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      triggerFileDownload(file.downloadUrl || file.url, file.originalName);
+      triggerFileDownload(file.downloadUrl || file.url, file.originalName || file.name);
       setDownloadedIndices((prev) => new Set([...prev, i]));
       if (i < files.length - 1) {
         await new Promise((r) => setTimeout(r, 600));
@@ -72,20 +100,35 @@ export function FileDownloadList({ shareData, onReset, onGoHome }) {
       <div className="p-6 rounded-2xl bg-[#0b0f1a] border border-[#242c3d] space-y-4 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h3 className="text-lg font-bold text-white">Files Ready for Download</h3>
+            <h3 className="text-lg font-bold text-white">
+              {!isReady ? 'Receiving Files from Sender...' : 'Files Ready for Download'}
+            </h3>
             <p className="text-xs text-[#8a92a5] mt-0.5">
-              {files.length} file{files.length > 1 ? 's' : ''} &middot; Total size: {formatBytes(totalSize)}
+              {activeFiles.length} file{activeFiles.length > 1 ? 's' : ''} &middot; Total size: {formatBytes(totalSize)}
             </p>
           </div>
 
-          {files.length > 1 && !hasDestructed && (
+          {activeFiles.length > 1 && !hasDestructed && (
             <button
               onClick={handleDownloadAll}
-              disabled={downloadingAll}
-              className="py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-emerald-600/25 active:scale-[0.98]"
+              disabled={downloadingAll || !isReady}
+              className={`py-2.5 px-4 rounded-xl font-medium text-xs flex items-center justify-center gap-2 transition-all shadow-lg ${
+                !isReady
+                  ? 'bg-slate-800 text-slate-400 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/25 active:scale-[0.98]'
+              }`}
             >
-              <Download className="h-4 w-4" />
-              <span>{downloadingAll ? 'Starting Downloads...' : 'Download All Files'}</span>
+              {!isReady ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin text-emerald-400" />
+                  <span>Transferring...</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  <span>{downloadingAll ? 'Starting Downloads...' : 'Download All Files'}</span>
+                </>
+              )}
             </button>
           )}
         </div>
@@ -99,18 +142,25 @@ export function FileDownloadList({ shareData, onReset, onGoHome }) {
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>SHA-256 Checksum Verified</span>
           </div>
+          {!isReady && (
+            <div className="flex items-center gap-1.5 text-blue-400 animate-pulse">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Live Transfer Active</span>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Files List */}
       <div className="space-y-3">
-        {files.map((file, index) => {
-          const fileType = getFileTypeInfo(file.originalName, file.mimeType);
+        {activeFiles.map((file, index) => {
+          const fileName = file.originalName || file.name || 'File';
+          const fileType = getFileTypeInfo(fileName, file.mimeType || file.type);
           const isDownloaded = downloadedIndices.has(index);
 
           return (
             <div
-              key={`${file.originalName}-${index}`}
+              key={`${fileName}-${index}`}
               className="flex items-center justify-between p-4 rounded-2xl bg-[#0b0f1a] border border-[#242c3d] hover:border-slate-700 transition-colors"
             >
               <div className="flex items-center gap-3 min-w-0 pr-3">
@@ -119,7 +169,7 @@ export function FileDownloadList({ shareData, onReset, onGoHome }) {
                 </div>
                 <div className="min-w-0 space-y-0.5">
                   <p className="text-sm font-semibold text-slate-200 truncate">
-                    {file.originalName}
+                    {fileName}
                   </p>
                   <div className="flex items-center gap-2 text-xs text-[#8a92a5]">
                     <span>{formatBytes(file.size)}</span>
@@ -140,14 +190,22 @@ export function FileDownloadList({ shareData, onReset, onGoHome }) {
               {!hasDestructed && (
                 <button
                   onClick={() => handleDownloadSingle(file, index)}
-                  aria-label={`Download ${file.originalName}`}
+                  disabled={!isReady}
+                  aria-label={`Download ${fileName}`}
                   className={`shrink-0 py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                    isDownloaded
+                    !isReady
+                      ? 'bg-slate-800/60 text-slate-400 border border-slate-700 cursor-not-allowed'
+                      : isDownloaded
                       ? 'bg-[#1a202c] text-emerald-400 border border-emerald-900/50'
                       : 'bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20'
                   }`}
                 >
-                  {isDownloaded ? (
+                  {!isReady ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />
+                      <span>Ready soon</span>
+                    </>
+                  ) : isDownloaded ? (
                     <>
                       <Check className="h-3.5 w-3.5" />
                       <span>Downloaded</span>

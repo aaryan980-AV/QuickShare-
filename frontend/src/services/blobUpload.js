@@ -1,10 +1,81 @@
-﻿import { upload } from '@vercel/blob/client';
+import { upload } from '@vercel/blob/client';
 import { calculateFileHash } from '../utils/cryptoHelper';
 
-const CHUNK_SIZE = 1 * 1024 * 1024; // 1 MB per slice (strictly avoids Vercel 413 limit)
+const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MB per slice (fast streaming while strictly within Vercel 4.5MB limit)
+const DIRECT_UPLOAD_MAX_SIZE = 100 * 1024 * 1024; // 100 MB direct high-speed single-request streaming
+
+// Cache whether Vercel Blob cloud storage token is active on server
+let isBlobConfigured = null;
+
+async function checkBlobConfigured() {
+  if (isBlobConfigured !== null) return isBlobConfigured;
+  try {
+    const res = await fetch('/api/health');
+    if (res.ok) {
+      const data = await res.json();
+      isBlobConfigured = Boolean(data.hasBlobToken);
+      return isBlobConfigured;
+    }
+  } catch {
+    // fallback to false
+  }
+  isBlobConfigured = false;
+  return false;
+}
 
 /**
- * Direct Single-Request Upload (For small files <= 2MB)
+ * Zero-Overhead Raw Stream Upload (Direct Binary Pipe from SSD/RAM to Socket, Fastest for 1GB+ files)
+ */
+function uploadRawStream(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const encodedName = encodeURIComponent(file.name);
+
+    xhr.open('POST', `/api/blob/raw-upload?name=${encodedName}`, true);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('x-filename', encodedName);
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const percentage = Math.round((event.loaded / event.total) * 100);
+          onProgress({
+            loaded: event.loaded,
+            total: event.total,
+            percentage: percentage,
+          });
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch (e) {
+          reject(new Error('Invalid response from server'));
+        }
+      } else {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          const error = new Error(errData.error || `HTTP ${xhr.status}`);
+          error.status = xhr.status;
+          reject(error);
+        } catch {
+          const error = new Error(`HTTP ${xhr.status}`);
+          error.status = xhr.status;
+          reject(error);
+        }
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network connection error during raw stream upload.'));
+    xhr.send(file);
+  });
+}
+
+/**
+ * Direct Single-Request Upload (High-Speed Multipart Stream)
  */
 function uploadDirectLocal(file, onProgress) {
   return new Promise((resolve, reject) => {
@@ -38,9 +109,13 @@ function uploadDirectLocal(file, onProgress) {
       } else {
         try {
           const errData = JSON.parse(xhr.responseText);
-          reject(new Error(errData.error || `Upload failed with HTTP ${xhr.status}`));
+          const error = new Error(errData.error || `Upload failed with HTTP ${xhr.status}`);
+          error.status = xhr.status;
+          reject(error);
         } catch {
-          reject(new Error(`Upload failed with HTTP ${xhr.status}`));
+          const error = new Error(`Upload failed with HTTP ${xhr.status}`);
+          error.status = xhr.status;
+          reject(error);
         }
       }
     };
@@ -54,14 +129,17 @@ function uploadDirectLocal(file, onProgress) {
 }
 
 /**
- * Upload a single chunk slice (1MB)
+ * Upload a single chunk slice (4MB) with optional byte offset
  */
-async function uploadSingleChunk(uploadId, chunkBlob, targetFilename) {
+async function uploadSingleChunk(uploadId, chunkBlob, targetFilename, offset) {
   const formData = new FormData();
   formData.append('uploadId', uploadId);
   formData.append('chunk', chunkBlob);
   if (targetFilename) {
     formData.append('targetFilename', targetFilename);
+  }
+  if (offset !== undefined && offset !== null) {
+    formData.append('offset', String(offset));
   }
 
   const response = await fetch('/api/blob/chunk/upload', {
@@ -78,9 +156,9 @@ async function uploadSingleChunk(uploadId, chunkBlob, targetFilename) {
 }
 
 /**
- * High-performance Chunked Stream Upload (1MB slices, supports up to 1 TB on Vercel)
+ * High-performance Parallel Chunked Stream Upload (4MB slices, 3x parallel streams, up to 1 TB)
  */
-async function uploadViaChunkedStream(file, onProgress) {
+async function uploadViaChunkedStream(file, onProgress, chunkConcurrency = 3) {
   // Step 1: Initialize session
   const initRes = await fetch('/api/blob/chunk/init', {
     method: 'POST',
@@ -98,29 +176,69 @@ async function uploadViaChunkedStream(file, onProgress) {
   }
 
   const { uploadId, chunkSize = CHUNK_SIZE, targetFilename } = await initRes.json();
-  const effectiveChunkSize = Math.min(chunkSize, CHUNK_SIZE);
+  const effectiveChunkSize = Math.max(1 * 1024 * 1024, Math.min(chunkSize, CHUNK_SIZE));
 
-  // Step 2: Slice and stream 1MB chunks sequentially
-  let offset = 0;
+  // Step 2: Slice into 4MB chunks
   const totalSize = file.size;
-
+  const chunks = [];
+  let offset = 0;
   while (offset < totalSize) {
-    const chunkBlob = file.slice(offset, Math.min(offset + effectiveChunkSize, totalSize));
-    await uploadSingleChunk(uploadId, chunkBlob, targetFilename);
-
-    offset += chunkBlob.size;
-
-    if (onProgress) {
-      const pct = totalSize > 0 ? Math.round((offset / totalSize) * 100) : 100;
-      onProgress({
-        loaded: offset,
-        total: totalSize,
-        percentage: pct,
-      });
-    }
+    const end = Math.min(offset + effectiveChunkSize, totalSize);
+    chunks.push({
+      offset,
+      blob: file.slice(offset, end),
+      size: end - offset,
+    });
+    offset = end;
   }
 
-  // Step 3: Complete and assemble file descriptor
+  // Step 3: Stream chunks concurrently with worker pool
+  let uploadedBytes = 0;
+  let nextChunkIndex = 0;
+  let activeWorkers = 0;
+
+  await new Promise((resolve, reject) => {
+    let hasError = false;
+
+    function launchNextChunk() {
+      if (hasError) return;
+
+      if (uploadedBytes >= totalSize || (nextChunkIndex >= chunks.length && activeWorkers === 0)) {
+        return resolve();
+      }
+
+      while (activeWorkers < chunkConcurrency && nextChunkIndex < chunks.length) {
+        const chunkIndex = nextChunkIndex++;
+        const { offset: chunkOffset, blob, size } = chunks[chunkIndex];
+        activeWorkers++;
+
+        uploadSingleChunk(uploadId, blob, targetFilename, chunkOffset)
+          .then(() => {
+            activeWorkers--;
+            uploadedBytes += size;
+
+            if (onProgress) {
+              const pct = totalSize > 0 ? Math.min(100, Math.round((uploadedBytes / totalSize) * 100)) : 100;
+              onProgress({
+                loaded: uploadedBytes,
+                total: totalSize,
+                percentage: pct,
+              });
+            }
+
+            launchNextChunk();
+          })
+          .catch((err) => {
+            hasError = true;
+            reject(err);
+          });
+      }
+    }
+
+    launchNextChunk();
+  });
+
+  // Step 4: Complete and assemble file descriptor
   const completeRes = await fetch('/api/blob/chunk/complete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -138,62 +256,32 @@ async function uploadViaChunkedStream(file, onProgress) {
 /**
  * Upload a single file: Auto-selects optimum strategy with multiple fail-safes
  */
-async function uploadWithRetry(file, onProgress, maxRetries = 2) {
-  // Calculate memory-safe SHA-256 fingerprint in background
-  const sha256Hash = await calculateFileHash(file);
+async function uploadWithRetry(file, onProgress) {
+  // Compute SHA-256 fingerprint concurrently with the upload stream for zero initial latency
+  const hashPromise = calculateFileHash(file);
 
-  // Strategy A: Try direct Vercel Blob cloud upload if token is configured
-  let attempt = 0;
-  while (attempt < maxRetries) {
-    try {
-      const timestamp = Date.now();
-      const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const pathname = `quickshare/${timestamp}-${cleanName}`;
-
-      const newBlob = await upload(pathname, file, {
-        access: 'public',
-        handleUploadUrl: '/api/blob/upload',
-        onUploadProgress: (progressEvent) => {
-          if (onProgress) {
-            onProgress({
-              loaded: progressEvent.loaded,
-              total: progressEvent.total,
-              percentage: progressEvent.percentage,
-            });
-          }
-        },
-      });
-
-      return {
-        url: newBlob.url,
-        downloadUrl: newBlob.downloadUrl || newBlob.url,
-        pathname: newBlob.pathname,
-        originalName: file.name,
-        size: file.size,
-        mimeType: file.type || 'application/octet-stream',
-        sha256: sha256Hash,
-      };
-    } catch (error) {
-      attempt++;
-      break;
-    }
-  }
-
-  // Strategy B: For files <= 2 MB, use fast single-request upload
-  if (file.size <= 2 * 1024 * 1024) {
-    try {
-      const result = await uploadDirectLocal(file, onProgress);
-      result.sha256 = sha256Hash;
-      return result;
-    } catch (directErr) {
-      console.warn('[Upload] Direct upload failed, trying chunked stream:', directErr.message);
-    }
-  }
-
-  // Strategy C: For large files (e.g. 700MB video up to 1 TB), use 1MB chunked streaming
+  // Strategy 1: Zero-Overhead Direct Raw Stream (Fastest possible transfer without multipart buffering)
   try {
-    const streamResult = await uploadViaChunkedStream(file, onProgress);
-    streamResult.sha256 = sha256Hash;
+    const result = await uploadRawStream(file, onProgress);
+    result.sha256 = await hashPromise;
+    return result;
+  } catch (rawErr) {
+    console.warn('[Upload] Raw stream failed, trying multipart direct upload:', rawErr.message);
+  }
+
+  // Strategy 2: High-Speed Multipart Stream Fallback
+  try {
+    const result = await uploadDirectLocal(file, onProgress);
+    result.sha256 = await hashPromise;
+    return result;
+  } catch (directErr) {
+    console.warn('[Upload] Direct upload failed, falling back to 6-stream chunked upload:', directErr.message);
+  }
+
+  // Strategy 3: Multi-stream parallel chunked upload (For serverless / proxy / 413 limits)
+  try {
+    const streamResult = await uploadViaChunkedStream(file, onProgress, 6);
+    streamResult.sha256 = await hashPromise;
     return streamResult;
   } catch (chunkErr) {
     throw new Error(`Upload failed for ${file.name}: ${chunkErr.message}`);
@@ -205,7 +293,7 @@ async function uploadWithRetry(file, onProgress, maxRetries = 2) {
  */
 export async function uploadFilesBatch(files, options = {}) {
   const {
-    concurrency = 2,
+    concurrency = 6,
     onFileProgress,
     onTotalProgress,
     onFileComplete,

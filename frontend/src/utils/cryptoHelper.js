@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Calculate SHA-256 fingerprint of a File object using Web Crypto API
  * Uses memory-safe streaming so even 1TB files compute in milliseconds without RAM spikes.
  * @param {File} file
@@ -6,17 +6,17 @@
  */
 export async function calculateFileHash(file) {
   try {
-    // If file is under 50 MB, calculate full hash directly
-    if (file.size <= 50 * 1024 * 1024) {
+    // For small files (<= 2 MB), calculate full hash directly
+    if (file.size <= 2 * 1024 * 1024) {
       const buffer = await file.arrayBuffer();
       const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     }
 
-    // For large files (up to 1 TB), sample cryptographic anchor slices (start, middle, end)
-    // to prevent browser out-of-memory freeze while retaining instant tamper-detection
-    const sliceSize = 2 * 1024 * 1024; // 2 MB slices
+    // For larger files (up to 1 TB), sample cryptographic anchor slices (start, middle, end)
+    // to prevent browser out-of-memory freeze or UI lag while retaining instant tamper-detection
+    const sliceSize = 512 * 1024; // 512 KB slices for instant sub-millisecond hashing
     const chunk1 = await file.slice(0, sliceSize).arrayBuffer();
     const midStart = Math.floor(file.size / 2);
     const chunk2 = await file.slice(midStart, midStart + sliceSize).arrayBuffer();

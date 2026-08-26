@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import { handleUpload } from '@vercel/blob/client';
 import multer from 'multer';
 import path from 'path';
@@ -42,8 +42,20 @@ setInterval(() => {
   }
 }, 15 * 60 * 1000);
 
-const uploadMemoryMiddleware = multer({
-  storage: multer.memoryStorage(),
+const localStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    ensureUploadsDir();
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const cleanName = (file.originalname || 'file').replace(/[^a-zA-Z0-9.-]/g, '_');
+    const targetFilename = `${Date.now()}-${cleanName}`;
+    cb(null, targetFilename);
+  }
+});
+
+const uploadDiskMiddleware = multer({
+  storage: localStorage,
   limits: { fileSize: config.maxFileSizeBytes }
 });
 
@@ -53,7 +65,7 @@ const chunkMulter = multer({
 });
 
 // ============================================================================
-// FILE DOWNLOAD / SERVING ROUTE
+// FILE DOWNLOAD / SERVING ROUTE (High-Throughput 1MB Stream Buffer)
 // ============================================================================
 router.get('/files/:filename', (req, res) => {
   const filename = path.basename(req.params.filename);
@@ -63,18 +75,103 @@ router.get('/files/:filename', (req, res) => {
     return res.status(404).json({ error: 'File not found on server.' });
   }
 
+  const stat = fs.statSync(filePath);
+  const fileSize = stat.size;
   const originalName = req.query.name || filename.replace(/^\d+-/, '');
-  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(originalName)}"`);
+  const range = req.headers.range;
+
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
-  return res.sendFile(filePath);
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Range, Accept-Ranges');
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(originalName)}"`);
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+    const chunksize = (end - start) + 1;
+    const fileStream = fs.createReadStream(filePath, { start, end, highWaterMark: 1024 * 1024 });
+
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+      'Content-Length': chunksize,
+      'Content-Type': 'application/octet-stream',
+    });
+    fileStream.pipe(res);
+  } else {
+    res.writeHead(200, {
+      'Content-Length': fileSize,
+      'Content-Type': 'application/octet-stream',
+    });
+    const fileStream = fs.createReadStream(filePath, { highWaterMark: 1024 * 1024 });
+    fileStream.pipe(res);
+  }
 });
 
 // ============================================================================
-// SINGLE-REQUEST LOCAL UPLOAD
+// ZERO-OVERHEAD RAW STREAM UPLOAD (Direct Pipe from Socket to Disk for 1GB+ Files)
+// ============================================================================
+router.post('/raw-upload', (req, res) => {
+  try {
+    ensureUploadsDir();
+    const originalName = req.query.name || req.headers['x-filename'] || 'file';
+    const decodedName = decodeURIComponent(originalName);
+    const cleanName = decodedName.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const targetFilename = `${Date.now()}-${cleanName}`;
+    const targetPath = path.join(uploadsDir, targetFilename);
+
+    const writeStream = fs.createWriteStream(targetPath, { highWaterMark: 1024 * 1024 });
+
+    req.pipe(writeStream);
+
+    req.on('error', (err) => {
+      console.error('[Raw Upload Socket Error]:', err);
+      try { writeStream.destroy(); } catch (e) {}
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Socket stream error during upload.' });
+      }
+    });
+
+    writeStream.on('error', (writeErr) => {
+      console.error('[Raw Upload Disk Error]:', writeErr);
+      if (!res.headersSent) {
+        res.status(500).json({ error: `File write failed: ${writeErr.message}` });
+      }
+    });
+
+    writeStream.on('finish', () => {
+      try {
+        const stats = fs.statSync(targetPath);
+        const fileUrl = `/api/blob/files/${targetFilename}`;
+        console.log(`[Raw Upload] Received: ${decodedName} (${stats.size} bytes) -> ${fileUrl}`);
+
+        return res.status(200).json({
+          url: fileUrl,
+          downloadUrl: fileUrl,
+          pathname: `quickshare/${targetFilename}`,
+          originalName: decodedName,
+          size: stats.size,
+          mimeType: req.headers['content-type'] || 'application/octet-stream'
+        });
+      } catch (statErr) {
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Failed to verify uploaded file.' });
+        }
+      }
+    });
+  } catch (error) {
+    console.error('[Raw Upload Fatal Error]:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Raw upload initialization failed.' });
+    }
+  }
+});
+
+// ============================================================================
+// SINGLE-REQUEST LOCAL UPLOAD (Direct Multipart Stream to Disk)
 // ============================================================================
 router.post('/local-upload', (req, res) => {
-  uploadMemoryMiddleware.single('file')(req, res, (err) => {
+  uploadDiskMiddleware.single('file')(req, res, (err) => {
     if (err) {
       console.error('[Local Upload Multer Error]:', err);
       return res.status(400).json({ error: err.message || 'File upload parsing failed.' });
@@ -85,13 +182,7 @@ router.post('/local-upload', (req, res) => {
     }
 
     try {
-      ensureUploadsDir();
-      const cleanName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const targetFilename = `${Date.now()}-${cleanName}`;
-      const targetPath = path.join(uploadsDir, targetFilename);
-
-      fs.writeFileSync(targetPath, req.file.buffer);
-
+      const targetFilename = req.file.filename;
       const fileUrl = `/api/blob/files/${targetFilename}`;
       console.log(`[Local Upload] Received: ${req.file.originalname} (${req.file.size} bytes) -> ${fileUrl}`);
 
@@ -111,7 +202,7 @@ router.post('/local-upload', (req, res) => {
 });
 
 // ============================================================================
-// CHUNKED UPLOAD PIPELINE (1MB chunks for strict Vercel compatibility)
+// CHUNKED UPLOAD PIPELINE (4MB chunks for fast streaming and Vercel compatibility)
 // ============================================================================
 
 // 1. Initialize Chunked Upload Session
@@ -152,7 +243,7 @@ router.post('/chunk/init', (req, res) => {
     return res.status(200).json({
       uploadId,
       targetFilename,
-      chunkSize: 1 * 1024 * 1024 // 1 MB chunk size to stay well within Vercel 4.5MB limit
+      chunkSize: 4 * 1024 * 1024 // 4 MB chunk size (fast & strictly within Vercel 4.5MB limit)
     });
   } catch (error) {
     console.error('[Chunk Init Fatal Error]:', error);
@@ -160,14 +251,14 @@ router.post('/chunk/init', (req, res) => {
   }
 });
 
-// 2. Append Chunk Slice Directly to File on Disk
+// 2. Append Chunk Slice Directly to File on Disk (Supports Offset-based Concurrent Writes)
 router.post('/chunk/upload', (req, res) => {
   chunkMulter.single('chunk')(req, res, (err) => {
     if (err) {
       return res.status(400).json({ error: err.message || 'Chunk parsing error.' });
     }
 
-    const { uploadId, targetFilename } = req.body;
+    const { uploadId, targetFilename, offset } = req.body;
     const chunkFile = req.file;
 
     if (!uploadId || !chunkFile) {
@@ -185,7 +276,14 @@ router.post('/chunk/upload', (req, res) => {
     }
 
     try {
-      fs.appendFileSync(session.targetPath, chunkFile.buffer);
+      if (offset !== undefined && offset !== null && !isNaN(Number(offset))) {
+        const fd = fs.openSync(session.targetPath, 'r+');
+        fs.writeSync(fd, chunkFile.buffer, 0, chunkFile.buffer.length, Number(offset));
+        fs.closeSync(fd);
+      } else {
+        fs.appendFileSync(session.targetPath, chunkFile.buffer);
+      }
+
       session.writtenBytes = (session.writtenBytes || 0) + chunkFile.buffer.length;
       session.lastActivity = Date.now();
 

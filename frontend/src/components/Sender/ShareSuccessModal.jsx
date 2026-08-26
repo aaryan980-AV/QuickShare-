@@ -64,7 +64,7 @@ export function ShareSuccessModal({ shareData, onReset, onGoHome, isUploading, u
 
       {/* Progress header & bar */}
       <div className="w-full space-y-3">
-        {/* Status text: "3 files · 640MB uploaded" */}
+        {/* Status text: "3 files Â· 640MB uploaded" */}
         <p className="text-center text-[13px] text-[#9aa3b8] font-normal tracking-wide">
           {filesCountDisplay} file{filesCountDisplay > 1 ? 's' : ''} &middot; {formattedUploaded} uploaded
         </p>
@@ -100,12 +100,12 @@ export function ShareSuccessModal({ shareData, onReset, onGoHome, isUploading, u
           Or share this code
         </p>
         <p className="text-[34px] sm:text-[38px] font-bold text-white font-mono tracking-[0.25em] select-all leading-tight">
-          {code || '••••••'}
+          {code || 'â€¢â€¢â€¢â€¢â€¢â€¢'}
         </p>
       </div>
 
       {/* Full-width "Copy link" button */}
-      <div className="w-full pt-2">
+      <div className="w-full pt-2 space-y-2">
         <button
           onClick={copyToClipboard}
           disabled={!shareUrl}
@@ -124,6 +124,12 @@ export function ShareSuccessModal({ shareData, onReset, onGoHome, isUploading, u
             </>
           )}
         </button>
+
+        {shareUrl && (
+          <p className="text-center text-[11px] text-slate-500 truncate px-2 font-mono" title={shareUrl}>
+            {shareUrl}
+          </p>
+        )}
       </div>
     </div>
   );

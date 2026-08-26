@@ -1,8 +1,8 @@
-﻿/**
- * Reliable cross-browser file download trigger
- * Handles Data URLs, Blob URLs, relative paths, and direct downloads.
+/**
+ * Fast cross-browser native file download trigger
+ * Uses native browser download streaming directly to disk with zero in-memory buffering.
  */
-export async function triggerFileDownload(rawUrl, filename) {
+export function triggerFileDownload(rawUrl, filename) {
   try {
     const url = rawUrl;
 
@@ -16,11 +16,11 @@ export async function triggerFileDownload(rawUrl, filename) {
       link.click();
       setTimeout(() => {
         document.body.removeChild(link);
-      }, 1500);
+      }, 1000);
       return;
     }
 
-    // 2. Relative URLs: Prefix current origin
+    // 2. Normalize URLs
     let targetUrl = url;
     if (targetUrl.startsWith('/')) {
       targetUrl = `${window.location.origin}${targetUrl}`;
@@ -38,39 +38,17 @@ export async function triggerFileDownload(rawUrl, filename) {
     const separator = targetUrl.includes('?') ? '&' : '?';
     const downloadUrl = `${targetUrl}${separator}download=1&name=${encodeURIComponent(filename || 'download')}`;
 
-    // 3. Try In-Memory Blob Fetch
-    try {
-      const response = await fetch(downloadUrl);
-      if (response.ok) {
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.style.display = 'none';
-        a.href = blobUrl;
-        a.download = filename || 'download';
-        document.body.appendChild(a);
-        a.click();
-        setTimeout(() => {
-          document.body.removeChild(a);
-          window.URL.revokeObjectURL(blobUrl);
-        }, 1500);
-        return;
-      }
-    } catch (fetchErr) {
-      console.warn('[Download] In-memory blob fetch fallback to direct anchor:', fetchErr);
-    }
-
-    // 4. Direct Anchor Fallback
+    // 3. Instant Native Browser Download (Direct stream to disk, native browser speed & download manager)
     const link = document.createElement('a');
+    link.style.display = 'none';
     link.href = downloadUrl;
     link.download = filename || 'download';
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
+    link.target = '_self';
     document.body.appendChild(link);
     link.click();
     setTimeout(() => {
       document.body.removeChild(link);
-    }, 1500);
+    }, 1000);
   } catch (error) {
     console.error('Download trigger error:', error);
     window.open(rawUrl, '_blank');
